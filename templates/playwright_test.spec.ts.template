@@ -1,0 +1,55 @@
+// {{FLOW_NAME}} - Test Suite
+// Auto-generated on {{GENERATED_DATE}}
+// Includes data-driven tests, error scenarios, and reusable authentication
+
+import { test, expect } from '@playwright/test';
+import { {{CLASS_NAME}}Page } from '../pages/{{FILE_NAME}}.page';
+import testData from '../data/{{FILE_NAME}}_data.json';
+
+// Import authentication if available (uncomment and adjust)
+// import { LoginPage } from '../pages/login.page';
+
+test.describe('{{FLOW_NAME}}', () => {
+  let page: {{CLASS_NAME}}Page;
+
+  test.beforeEach(async ({ page: playwrightPage }) => {
+    page = new {{CLASS_NAME}}Page(playwrightPage);
+    
+    // Perform login if required (uncomment and adjust)
+    // const loginPage = new LoginPage(playwrightPage);
+    // await loginPage.navigate(process.env.BASE_URL || 'https://your-app.com');
+    // await loginPage.login(process.env.USERNAME || 'testuser', process.env.PASSWORD || 'password');
+    // await playwrightPage.waitForURL('**/home'); // Wait for redirect after login
+  });
+
+  // {{TEST_CASES}}
+
+  test('{{FLOW_NAME}} - Data Driven Test', async () => {
+    // Execute test with multiple data sets from JSON
+    for (const dataSet of testData.testData) {
+      await test.step(`Test with dataset: ${dataSet.name || 'default'}`, async () => {
+        // Navigate and execute flow with dataSet values
+        // Map fields from testData.fields to page actions
+        console.log(`Testing with dataset:`, dataSet);
+      });
+    }
+  });
+
+  test('{{FLOW_NAME}} - Error Validation', async () => {
+    // Test error scenarios and validation
+    await test.step('Validate required field errors', async () => {
+      // Test submitting without required fields
+      // Assert appropriate error messages are shown
+    });
+    
+    await test.step('Validate input format errors', async () => {
+      // Test invalid formats (email, date, number, etc.)
+      // Assert validation messages
+    });
+  });
+
+  test.afterEach(async ({ page: playwrightPage }) => {
+    // Cleanup: logout, close modals, clear session, etc.
+    // await playwrightPage.close();
+  });
+});

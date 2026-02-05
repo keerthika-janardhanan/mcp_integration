@@ -1,0 +1,82 @@
+// {{FLOW_NAME}} - Page Object
+// Auto-generated on {{GENERATED_DATE}}
+// Follows Page Object Model pattern with base class extension
+
+import { Page, expect, Locator } from '@playwright/test';
+import { {{CLASS_NAME}}Locators } from '../locators/{{FILE_NAME}}.locators';
+
+// Import base page if available (uncomment and adjust path)
+// import { BasePage } from './base.page';
+
+export class {{CLASS_NAME}}Page /* extends BasePage */ {
+  readonly locators: {{CLASS_NAME}}Locators;
+
+  constructor(private page: Page) {
+    // super(page); // Uncomment if extending BasePage
+    this.locators = new {{CLASS_NAME}}Locators(page);
+  }
+
+  /**
+   * Navigate to the application URL
+   * Includes wait for network idle to ensure page is fully loaded
+   */
+  async navigate(url: string) {
+    await this.page.goto(url);
+    await this.page.waitForLoadState('networkidle');
+  }
+
+  /**
+   * Wait for dynamic content to load
+   * Use this after actions that trigger data loading (search, filter, etc.)
+   */
+  async waitForDynamicContent() {
+    // Wait for common loading indicators to disappear
+    const loadingSelectors = ['.loading', '.spinner', '[data-loading="true"]'];
+    for (const selector of loadingSelectors) {
+      const loading = this.page.locator(selector);
+      if (await loading.isVisible().catch(() => false)) {
+        await loading.waitFor({ state: 'hidden', timeout: 10000 });
+      }
+    }
+    // Additional network idle wait
+    await this.page.waitForLoadState('networkidle');
+  }
+
+  /**
+   * Select table row by text content
+   * @param rowText - Text to search for in the row
+   * @param columnIndex - Optional: specific column index to match
+   */
+  async selectTableRowByText(rowText: string, columnIndex?: number): Promise<void> {
+    const table = this.page.locator('table');
+    await table.waitFor({ state: 'visible' });
+    
+    if (columnIndex !== undefined) {
+      // Select row where specific column contains text
+      const row = table.locator('tr').filter({ 
+        has: this.page.locator(`td:nth-child(${columnIndex + 1})`).filter({ hasText: rowText })
+      });
+      await row.click();
+    } else {
+      // Select any row containing the text
+      const row = table.locator('tr').filter({ hasText: rowText });
+      await row.click();
+    }
+    await this.waitForDynamicContent();
+  }
+
+  /**
+   * Select table row by index (1-based)
+   * @param index - Row index (1-based, excluding header)
+   */
+  async selectTableRowByIndex(index: number): Promise<void> {
+    const table = this.page.locator('table');
+    await table.waitFor({ state: 'visible' });
+    const row = table.locator(`tbody tr:nth-child(${index})`);
+    await row.click();
+    await this.waitForDynamicContent();
+  }
+
+  // {{PAGE_METHODS}}
+}
+

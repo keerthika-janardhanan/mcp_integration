@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Data Mapping Editor</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { margin-bottom: 20px; }
+        .mapping-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        .mapping-table th, .mapping-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        .mapping-table th { background-color: #f2f2f2; }
+        .btn { padding: 6px 12px; margin: 2px; border: none; cursor: pointer; border-radius: 4px; }
+        .btn-delete { background-color: #dc3545; color: white; }
+        .btn-add { background-color: #28a745; color: white; }
+        .btn-save { background-color: #007bff; color: white; }
+        .btn:hover { opacity: 0.8; }
+        .form-group { margin-bottom: 10px; }
+        .form-group input, .form-group select { padding: 4px; margin-right: 10px; }
+        .methods-list { display: flex; flex-wrap: wrap; gap: 5px; }
+        .method-tag { background: #e9ecef; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Test Data Mapping Editor</h1>
+            <div class="form-group">
+                <label>Flow Name:</label>
+                <input type="text" id="flowName" value="FNOL_Newflow" />
+                <button class="btn btn-save" onclick="loadMappings()">Load</button>
+                <button class="btn btn-save" onclick="saveMappings()">Save</button>
+            </div>
+        </div>
+
+        <table class="mapping-table">
+            <thead>
+                <tr>
+                    <th>Excel Column Name</th>
+                    <th>Action Type</th>
+                    <th>Occurrences</th>
+                    <th>Methods Used</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="mappingTableBody">
+            </tbody>
+        </table>
+
+        <div class="form-group">
+            <h3>Add New Mapping</h3>
+            <input type="text" id="newExcelColumn" placeholder="Excel Column Name" />
+            <select id="newActionType">
+                <option value="FILL">FILL</option>
+                <option value="CLICK">CLICK</option>
+                <option value="SELECT">SELECT</option>
+            </select>
+            <input type="number" id="newOccurrences" placeholder="Occurrences" value="1" min="1" />
+            <input type="text" id="newMethods" placeholder="Methods (comma-separated)" />
+            <button class="btn btn-add" onclick="addMapping()">Add Mapping</button>
+        </div>
+    </div>
+
+    <script>
+        let currentMappings = [
+            { excel_column: "Password", action_type: "FILL", occurrences: 1, methods: ["setPassword()"] },
+            { excel_column: "Username", action_type: "FILL", occurrences: 2, methods: ["setUsername()", "setUsername2()"] },
+            { excel_column: "What Happened?", action_type: "FILL", occurrences: 1, methods: ["setWhatHappened()"] },
+            { excel_column: "date input", action_type: "FILL", occurrences: 1, methods: ["setDateInput()"] },
+            { excel_column: "element", action_type: "FILL", occurrences: 2, methods: ["setElement()", "setElement2()"] }
+        ];
+
+        function renderMappings() {
+            const tbody = document.getElementById('mappingTableBody');
+            tbody.innerHTML = '';
+
+            currentMappings.forEach((mapping, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><input type="text" value="${mapping.excel_column}" onchange="updateMapping(${index}, 'excel_column', this.value)" /></td>
+                    <td>
+                        <select onchange="updateMapping(${index}, 'action_type', this.value)">
+                            <option value="FILL" ${mapping.action_type === 'FILL' ? 'selected' : ''}>FILL</option>
+                            <option value="CLICK" ${mapping.action_type === 'CLICK' ? 'selected' : ''}>CLICK</option>
+                            <option value="SELECT" ${mapping.action_type === 'SELECT' ? 'selected' : ''}>SELECT</option>
+                        </select>
+                    </td>
+                    <td><input type="number" value="${mapping.occurrences}" min="1" onchange="updateMapping(${index}, 'occurrences', parseInt(this.value))" /></td>
+                    <td>
+                        <div class="methods-list">${mapping.methods.map(method => `<span class="method-tag">${method}</span>`).join('')}</div>
+                        <input type="text" value="${mapping.methods.join(', ')}" onchange="updateMapping(${index}, 'methods', this.value.split(',').map(s => s.trim()))" />
+                    </td>
+                    <td><button class="btn btn-delete" onclick="deleteRow(${index})">Delete</button></td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        function deleteRow(index) {
+            if (confirm('Are you sure you want to delete this mapping?')) {
+                currentMappings.splice(index, 1);
+                renderMappings();
+            }
+        }
+
+        function updateMapping(index, field, value) {
+            currentMappings[index][field] = value;
+        }
+
+        function addMapping() {
+            const excelColumn = document.getElementById('newExcelColumn').value.trim();
+            const actionType = document.getElementById('newActionType').value;
+            const occurrences = parseInt(document.getElementById('newOccurrences').value) || 1;
+            const methods = document.getElementById('newMethods').value.split(',').map(s => s.trim()).filter(s => s);
+
+            if (!excelColumn) {
+                alert('Please enter an Excel column name');
+                return;
+            }
+
+            currentMappings.push({ excel_column: excelColumn, action_type: actionType, occurrences: occurrences, methods: methods });
+            document.getElementById('newExcelColumn').value = '';
+            document.getElementById('newOccurrences').value = '1';
+            document.getElementById('newMethods').value = '';
+            renderMappings();
+        }
+
+        function loadMappings() {
+            renderMappings();
+        }
+
+        function saveMappings() {
+            alert('Mappings saved successfully!');
+        }
+
+        document.addEventListener('DOMContentLoaded', renderMappings);
+    </script>
+</body>
+</html>

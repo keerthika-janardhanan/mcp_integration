@@ -1,0 +1,41 @@
+{
+  "flowName": "{{FLOW_NAME}}",
+  "generatedDate": "{{GENERATED_DATE}}",
+  "testData": [
+    {
+      "name": "happy_path",
+      "scenario": "{{SCENARIO}}",
+      "description": "Standard successful flow execution",
+      "enabled": true,
+      "fields": [
+        {{TEST_DATA_FIELDS}}
+      ]
+    },
+    {
+      "name": "alternate_data",
+      "scenario": "{{SCENARIO}} with alternate values",
+      "description": "Test with different valid data",
+      "enabled": true,
+      "fields": []
+    }
+  ],
+  "dynamicElements": {
+    "tables": {
+      "selectionStrategy": "by-text-content",
+      "note": "Use row name/text for flexible selection, not hardcoded index",
+      "example": "tableRowByText('John Doe')"
+    },
+    "dropdowns": {
+      "selectionStrategy": "by-label",
+      "note": "Use visible label text, not internal value",
+      "example": "selectOption({ label: 'United States' })"
+    },
+    "loadingIndicators": [".loading", ".spinner", "[data-loading='true']"]
+  },
+  "codingStandards": {
+    "namingConvention": "PascalCase classes, camelCase methods, snake_case files",
+    "locatorPriority": ["getByRole", "getByLabel", "getByText", "getByPlaceholder", "CSS", "XPath"],
+    "waitStrategy": "networkidle after navigation, explicit waits for dynamic content",
+    "reusableComponents": "Import and extend base classes (BasePage, LoginPage, utilities)"
+  }
+}

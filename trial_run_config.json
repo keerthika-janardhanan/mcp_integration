@@ -1,0 +1,9 @@
+{
+  "credentials": {
+    "username": "neeli.santhoshkumar2@ctsax.onmicrosoft.com",
+    "password": "YOUR_PASSWORD_HERE",
+    "base_url": "https://login.microsoftonline.com"
+  },
+  "timeout": 30000,
+  "headless": false
+}

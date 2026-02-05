@@ -1,0 +1,54 @@
+{
+  "locators": [
+    {
+      "path": "locators/Sign in to your account.locators.ts",
+      "content": "const locators = {\n  enterYourEmailPhoneOrSkype: \"#i0116\",\n  submit: \"#idSIButton9\",\n  enterThePasswordFor2218532CognizantCom: \"#i0118\",\n};\n\nexport default locators;\r\n"
+    },
+    {
+      "path": "locators/guidewire-hub - Sign In.locators.ts",
+      "content": "const locators = {\n  usernameField: \"#idp-discovery-username\",\n  next: \"#idp-discovery-submit\",\n};\n\nexport default locators;\r\n"
+    }
+  ],
+  "pages": [
+    {
+      "path": "pages/Sign in to your account.page.ts",
+      "content": "import { Page, Locator } from '@playwright/test';\nimport HelperClass from \"../util/methods.utility.ts\";\nimport locators from \"../locators/Sign in to your account.locators.ts\";\n\nclass SignintoyouraccountPage {\n  page: Page;\n  helper: HelperClass;\n  enterYourEmailPhoneOrSkype: Locator;\n  submit: Locator;\n  enterThePasswordFor2218532CognizantCom: Locator;\n\n  constructor(page: Page) {\n    this.page = page;\n    this.helper = new HelperClass(page);\n    this.enterYourEmailPhoneOrSkype = page.locator(locators.enterYourEmailPhoneOrSkype);\n    this.submit = page.locator(locators.submit);\n    this.enterThePasswordFor2218532CognizantCom = page.locator(locators.enterThePasswordFor2218532CognizantCom);\n  }\n\n  private coerceValue(value: unknown): string {\n    if (value === undefined || value === null) {\n      return '';\n    }\n    if (typeof value === 'number') {\n      return `${value}`;\n    }\n    if (typeof value === 'string') {\n      return value;\n    }\n    return `${value ?? ''}`;\n  }\n\n  private normaliseDataKey(value: string): string {\n    return (value || '').replace(/[^a-z0-9]+/gi, '').toLowerCase();\n  }\n\n  private resolveDataValue(formData: Record<string, any> | null | undefined, key: string, fallback: string = ''): string {\n    const target = this.normaliseDataKey(key);\n    if (formData) {\n      for (const entryKey of Object.keys(formData)) {\n        if (this.normaliseDataKey(entryKey) === target) {\n          const candidate = this.coerceValue(formData[entryKey]);\n          if (candidate.trim() !== '') {\n            return candidate;\n          }\n        }\n      }\n    }\n    return this.coerceValue(fallback);\n  }\n\n  async setYourEmail(value: unknown): Promise<void> {\n    const finalValue = this.coerceValue(value);\n    await this.enterYourEmailPhoneOrSkype.fill(finalValue);\n  }\n\n  async setThePasswordFor2218532(value: unknown): Promise<void> {\n    const finalValue = this.coerceValue(value);\n    await this.enterThePasswordFor2218532CognizantCom.fill(finalValue);\n  }\n\n  async applyData(formData: Record<string, any> | null | undefined, keys?: string[], index: number = 0): Promise<void> {\n    const fallbackValues: Record<string, string> = {\n      \"your email\": \"\",\n      \"the password for 2218532\": \"\",\n    };\n    const targetKeys = Array.isArray(keys) && keys.length ? keys.map((key) => this.normaliseDataKey(key)) : null;\n    const shouldHandle = (key: string) => {\n      if (!targetKeys) {\n        return true;\n      }\n      return targetKeys.includes(this.normaliseDataKey(key));\n    };\n    if (shouldHandle(\"your email\")) {\n      await this.setYourEmail(this.resolveDataValue(formData, \"your email\", fallbackValues[\"your email\"] ?? ''));\n    }\n    if (shouldHandle(\"the password for 2218532\")) {\n      await this.setThePasswordFor2218532(this.resolveDataValue(formData, \"the password for 2218532\", fallbackValues[\"the password for 2218532\"] ?? ''));\n    }\n  }\n}\n\nexport default SignintoyouraccountPage;\r\n"
+    },
+    {
+      "path": "pages/guidewire-hub - Sign In.page.ts",
+      "content": "import { Page, Locator } from '@playwright/test';\nimport HelperClass from \"../util/methods.utility.ts\";\nimport locators from \"../locators/guidewire-hub - Sign In.locators.ts\";\n\nclass GuidewirehubsigninPage {\n  page: Page;\n  helper: HelperClass;\n  usernameField: Locator;\n  next: Locator;\n\n  constructor(page: Page) {\n    this.page = page;\n    this.helper = new HelperClass(page);\n    this.usernameField = page.locator(locators.usernameField);\n    this.next = page.locator(locators.next);\n  }\n\n  private coerceValue(value: unknown): string {\n    if (value === undefined || value === null) {\n      return '';\n    }\n    if (typeof value === 'number') {\n      return `${value}`;\n    }\n    if (typeof value === 'string') {\n      return value;\n    }\n    return `${value ?? ''}`;\n  }\n\n  private normaliseDataKey(value: string): string {\n    return (value || '').replace(/[^a-z0-9]+/gi, '').toLowerCase();\n  }\n\n  private resolveDataValue(formData: Record<string, any> | null | undefined, key: string, fallback: string = ''): string {\n    const target = this.normaliseDataKey(key);\n    if (formData) {\n      for (const entryKey of Object.keys(formData)) {\n        if (this.normaliseDataKey(entryKey) === target) {\n          const candidate = this.coerceValue(formData[entryKey]);\n          if (candidate.trim() !== '') {\n            return candidate;\n          }\n        }\n      }\n    }\n    return this.coerceValue(fallback);\n  }\n\n  async setUsernameField(value: unknown): Promise<void> {\n    const finalValue = this.coerceValue(value);\n    await this.usernameField.fill(finalValue);\n  }\n\n  async applyData(formData: Record<string, any> | null | undefined, keys?: string[], index: number = 0): Promise<void> {\n    const fallbackValues: Record<string, string> = {\n      \"username field\": \"\",\n    };\n    const targetKeys = Array.isArray(keys) && keys.length ? keys.map((key) => this.normaliseDataKey(key)) : null;\n    const shouldHandle = (key: string) => {\n      if (!targetKeys) {\n        return true;\n      }\n      return targetKeys.includes(this.normaliseDataKey(key));\n    };\n    if (shouldHandle(\"username field\")) {\n      await this.setUsernameField(this.resolveDataValue(formData, \"username field\", fallbackValues[\"username field\"] ?? ''));\n    }\n  }\n}\n\nexport default GuidewirehubsigninPage;\r\n"
+    }
+  ],
+  "tests": [
+    {
+      "path": "tests/test93.spec.ts",
+      "content": "import { test } from \"../testSetup\";\nimport SignintoyouraccountPage from \"../pages/SignintoyouraccountPage.ts\";\nimport GuidewirehubsigninPage from \"../pages/GuidewirehubsigninPage.ts\";\n\ntest.describe(\"Generate automation script for test93\", () => {\n  let signintoyouraccountPage: SignintoyouraccountPage;\n  let guidewirehubsigninPage: GuidewirehubsigninPage;\n\n  test(\"Generate automation script for test93\", async ({ page }) => {\n    await page.goto(\"https://login.microsoftonline.com/de08c407-19b9-427d-9fe8-edf254300ca7/saml2?sso_reload=true\");\n\n    signintoyouraccountPage = new SignintoyouraccountPage(page);\n    guidewirehubsigninPage = new GuidewirehubsigninPage(page);\n\n    // Sign in to your account steps\n    await signintoyouraccountPage.fillElement(\"value\");  // TODO: Replace with actual value\n    await signintoyouraccountPage.clickElement();\n    await signintoyouraccountPage.fillElement(\"value\");  // TODO: Replace with actual value\n\n    // guidewire-hub - Sign In steps\n    await guidewirehubsigninPage.fillElement(\"value\");  // TODO: Replace with actual value\n    await guidewirehubsigninPage.clickElement();\n\n  });\n});\r\n"
+    }
+  ],
+  "testDataMapping": [
+    {
+      "columnName": "your email",
+      "occurrences": 1,
+      "actionType": "fill",
+      "methods": [
+        "setYourEmail"
+      ]
+    },
+    {
+      "columnName": "the password for 2218532",
+      "occurrences": 1,
+      "actionType": "fill",
+      "methods": [
+        "setThePasswordFor2218532"
+      ]
+    },
+    {
+      "columnName": "username field",
+      "occurrences": 1,
+      "actionType": "fill",
+      "methods": [
+        "setUsernameField"
+      ]
+    }
+  ]
+}

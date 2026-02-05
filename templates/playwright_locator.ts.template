@@ -1,0 +1,39 @@
+// {{FLOW_NAME}} - Locators
+// Auto-generated on {{GENERATED_DATE}}
+// Uses Playwright semantic locators with fallback strategies
+
+import { Page, Locator } from '@playwright/test';
+
+export class {{CLASS_NAME}}Locators {
+  constructor(private page: Page) {}
+
+  /**
+   * Get table row by text content
+   * @param text - Text to search for in the row
+   * @returns Locator for the matching row
+   */
+  tableRowByText(text: string): Locator {
+    return this.page.getByRole('row').filter({ hasText: text });
+  }
+
+  /**
+   * Get table row by index (1-based, excluding header)
+   * @param index - Row index
+   * @returns Locator for the row at specified index
+   */
+  tableRowByIndex(index: number): Locator {
+    return this.page.locator(`table tbody tr:nth-child(${index})`);
+  }
+
+  /**
+   * Get dropdown option by text
+   * @param text - Option text
+   * @returns Locator for the option
+   */
+  dropdownOption(text: string): Locator {
+    return this.page.getByRole('option', { name: text });
+  }
+
+  // Step-specific locators
+  // {{LOCATOR_DEFINITIONS}}
+}

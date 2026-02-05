@@ -1,0 +1,57 @@
+.env
+.venv
+.env.local
+.env.copilot
+.env.example
+frontend/.env
+frontend/.env.local
+
+# Recordings contain sensitive tokens and auth data
+recordings/
+app/generated_flows/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test outputs
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Vector DB (may contain sensitive indexed data)
+vector_store/
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+draft_cache.json
+temp_*.json
+temp_*.py
+tmp_*.py
+tmp_*.ts
+zRun.bat
+
