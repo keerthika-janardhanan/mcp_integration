@@ -95,17 +95,20 @@ def load_trial_credentials(repo_root: Path, case_id: Optional[str] = None) -> Op
 
 def trial_env_overrides(repo_root: Path, case_id: Optional[str] = None, spec_path: Optional[Path] = None) -> Dict[str, str]:
     """
-    Build environment variable overrides for trial executions using credentials from trial_run_config.json.
-    This enables specs that rely on process.env to use consistent values without editing source files.
+    Build environment variable overrides for trial executions.
+    Credentials should come from /data Excel files, not from this function.
+    This is mainly for setting BASE_URL and other non-sensitive config.
     """
+    overrides: Dict[str, str] = {}
+    
     # Check if trial config should be used
     use_trial_config = os.getenv('USE_TRIAL_CONFIG', 'NO').upper() == 'YES'
     
     if not use_trial_config:
-        logger.info("Trial adapter: USE_TRIAL_CONFIG=NO, skipping trial_run_config.json")
-        return {}
+        logger.info("Trial adapter: USE_TRIAL_CONFIG=NO, no env overrides")
+        return overrides
     
-    # Always read from trial_run_config.json at the project root
+    # Read from trial_run_config.json at the project root
     trial_config_path = Path(__file__).resolve().parents[1] / "trial_run_config.json"
     
     if not trial_config_path.exists():

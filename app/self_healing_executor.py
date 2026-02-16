@@ -165,11 +165,26 @@ def run_trial_with_self_healing(
     """
     from .executor import run_trial_in_framework
     
+    print("\n" + "="*60)
+    print("SELF-HEALING TRIAL EXECUTION")
+    print("="*60)
+    print(f"Max retries: {max_retries}")
+    print(f"Headed mode: {headed}")
+    print(f"Framework: {framework_root}")
+    print(f"Self-healing timeout mode: ENABLED (faster failures for quick retries)")
+    print("="*60 + "\n")
+    
     healing_attempts = []
     current_script = script_content
     
+    # Set self-healing mode for faster timeouts
+    if env_overrides is None:
+        env_overrides = {}
+    env_overrides['SELF_HEALING_MODE'] = 'true'
+    
     for attempt in range(max_retries + 1):
         logger.info(f"[SelfHealing] Trial attempt {attempt + 1}/{max_retries + 1}")
+        print(f"[SelfHealing] ===== TRIAL ATTEMPT {attempt + 1}/{max_retries + 1} =====")
         
         # Run trial
         success, logs = run_trial_in_framework(
@@ -181,21 +196,29 @@ def run_trial_with_self_healing(
         
         if success:
             logger.info(f"[SelfHealing] ✅ Test passed on attempt {attempt + 1}")
+            print(f"[SelfHealing] ✅ Test PASSED on attempt {attempt + 1}")
             return success, logs, healing_attempts
         
         # Test failed - check if it's a locator issue
+        print(f"[SelfHealing] ❌ Test FAILED on attempt {attempt + 1}")
+        print(f"[SelfHealing] Analyzing failure logs for locator errors...")
         failed_locators = extract_failed_locators_from_logs(logs)
+        print(f"[SelfHealing] Found {len(failed_locators)} failed locators: {failed_locators}")
         
         if not failed_locators:
             logger.warning("[SelfHealing] Test failed but no locator errors detected")
+            print("[SelfHealing] ⚠️ Test failed but NO locator errors found - cannot self-heal")
             return success, logs, healing_attempts
         
         if attempt >= max_retries:
             logger.warning(f"[SelfHealing] Max retries ({max_retries}) reached")
+            print(f"[SelfHealing] ⚠️ Max retries ({max_retries}) reached - giving up")
             return success, logs, healing_attempts
         
         # Attempt self-healing
         logger.info(f"[SelfHealing] 🔧 Attempting self-healing (found {len(failed_locators)} failed locators)")
+        print(f"[SelfHealing] 🔧 Starting self-healing for {len(failed_locators)} failed locators...")
+        print(f"[SelfHealing] Failed locators: {', '.join(failed_locators)}")
         
         # Capture UI state (in production, use Playwright MCP)
         ui_crawl = capture_ui_crawl_on_failure(logs)

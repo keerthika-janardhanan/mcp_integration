@@ -52,11 +52,12 @@ def _shorten(value: str, limit: int = 800) -> str:
 
 
 def remove_consecutive_duplicates(actions):
-    """Remove consecutive duplicate actions and filter checkbox input/change events.
+    """Remove only truly redundant duplicate actions and filter checkbox input/change events.
     
-    For consecutive actions on the same element (by CSS):
-    - Prefer 'input' action if multiple actions exist
-    - If all are click/change, keep only one
+    Conservative deduplication to preserve all user actions:
+    - Keep all unique action types (click, input, change, etc.)
+    - Only remove exact duplicates (same action, same element, within 100ms)
+    - Never remove submit button clicks, navigation clicks, or checkbox actions
     """
     if not actions:
         return []
@@ -69,8 +70,15 @@ def remove_consecutive_duplicates(actions):
         css = current.get('element', {}).get('selector', {}).get('css')
         html = current.get('element', {}).get('html', '')
         is_checkbox = 'type="checkbox"' in html or 'type="radio"' in html
+        is_submit_btn = 'type="submit"' in html or current.get('action') == 'submit'
         
-        # Skip input/change actions for checkboxes
+        # Convert checkbox clicks to check/uncheck actions
+        if is_checkbox and current['action'] == 'click':
+            # Determine if checking or unchecking (default to check)
+            current['action'] = 'check'
+            current['_checkbox_action'] = True
+        
+        # Skip input/change actions for checkboxes (clicks are converted above)
         if is_checkbox and current['action'] in ['input', 'change']:
             i += 1
             continue
@@ -95,15 +103,40 @@ def remove_consecutive_duplicates(actions):
             else:
                 break
         
-        # Smart selection from consecutive group
+        # Conservative deduplication - only remove EXACT duplicates within 100ms
+        # ALWAYS keep: submit clicks, checkbox actions, navigation actions, different action types
+        if is_submit_btn or current.get('_checkbox_action'):
+            deduplicated.append(current)
+            i = j
+            continue
+        
+        # Check if this is truly a duplicate (same action type within 100ms)
         if len(consecutive_group) > 1:
-            # Prefer 'input' action if it exists
-            input_actions = [a for a in consecutive_group if a['action'] == 'input']
-            if input_actions:
-                deduplicated.append(input_actions[0])
+            # Group by action type - keep one of each type
+            actions_by_type = {}
+            for action in consecutive_group:
+                action_type = action['action']
+                if action_type not in actions_by_type:
+                    actions_by_type[action_type] = action
+            
+            # If multiple action types, keep all of them
+            if len(actions_by_type) > 1:
+                # Keep all different action types
+                for action in actions_by_type.values():
+                    deduplicated.append(action)
             else:
-                # All are click/change, keep only the first one
-                deduplicated.append(consecutive_group[0])
+                # Same action type repeated - check timestamp
+                first = consecutive_group[0]
+                last = consecutive_group[-1]
+                time_diff = abs(last.get('timestamp', 0) - first.get('timestamp', 0))
+                
+                # Only deduplicate if within 100ms (likely accidental double-click)
+                if time_diff < 100:
+                    deduplicated.append(first)
+                else:
+                    # Keep all - they're intentional separate actions
+                    for action in consecutive_group:
+                        deduplicated.append(action)
         else:
             deduplicated.append(current)
         

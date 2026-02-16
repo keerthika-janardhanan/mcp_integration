@@ -23,6 +23,10 @@ def _resolve_playwright_command(tmp_path: str, headed: bool, project_root: Optio
     
     project_root = project_root or Path(__file__).resolve().parents[2]
     cwd = str(project_root)
+    
+    print(f"[Executor] Resolving Playwright command")
+    print(f"[Executor] Project root: {project_root}")
+    print(f"[Executor] Project root exists: {project_root.exists()}")
 
     # Playwright treats positional args as regex. On Windows, backslashes can break the match.
     # Normalize to forward slashes so the regex matches the file path reliably.
@@ -35,22 +39,51 @@ def _resolve_playwright_command(tmp_path: str, headed: bool, project_root: Optio
     # Prefer local node_modules binaries first to avoid version conflicts
     bin_dir_win = project_root / "node_modules" / ".bin" / "playwright.cmd"
     bin_dir_unix = project_root / "node_modules" / ".bin" / "playwright"
+    
+    print(f"[Executor] Checking for playwright.cmd: {bin_dir_win}")
+    print(f"[Executor] playwright.cmd exists: {bin_dir_win.exists()}")
+    print(f"[Executor] Checking for playwright (Unix): {bin_dir_unix}")
+    print(f"[Executor] playwright (Unix) exists: {bin_dir_unix.exists()}")
+    
     if bin_dir_win.exists():
+        print(f"[Executor] ✓ Using: {bin_dir_win}")
         return [str(bin_dir_win), *base_args], cwd
     if bin_dir_unix.exists():
+        print(f"[Executor] ✓ Using: {bin_dir_unix}")
         return [str(bin_dir_unix), *base_args], cwd
 
     # Fallback to running the CLI JS directly
     cli_js = project_root / "node_modules" / "@playwright" / "test" / "cli.js"
     node_path = shutil.which("node") or shutil.which("node.exe")
+    
+    print(f"[Executor] Checking CLI JS fallback: {cli_js}")
+    print(f"[Executor] CLI JS exists: {cli_js.exists()}")
+    print(f"[Executor] node path: {node_path}")
+    
     if node_path and cli_js.exists():
+        print(f"[Executor] ✓ Using node + CLI JS: {node_path} {cli_js}")
         return [node_path, str(cli_js), *base_args], cwd
+    
+    # Check if node_modules exists at all
+    node_modules = project_root / "node_modules"
+    print(f"[Executor] node_modules exists: {node_modules.exists()}")
+    if node_modules.exists():
+        playwright_pkg = node_modules / "@playwright" / "test"
+        print(f"[Executor] @playwright/test exists: {playwright_pkg.exists()}")
 
     # Nothing found; craft helpful error
-    raise FileNotFoundError(
-        "Playwright CLI not found. Ensure Node and @playwright/test are installed (npm ci) "
-        "and that npx is on PATH."
+    error_msg = (
+        f"Playwright CLI not found in {project_root}.\n"
+        f"Checked locations:\n"
+        f"  - {bin_dir_win}\n"
+        f"  - {bin_dir_unix}\n"
+        f"  - {cli_js}\n"
+        f"Ensure Node and @playwright/test are installed:\n"
+        f"  cd {project_root}\n"
+        f"  npm ci\n"
     )
+    print(f"[Executor] ERROR: {error_msg}")
+    raise FileNotFoundError(error_msg)
 
 
 def run_trial(script_content: str, headed: bool = True, env_overrides: Optional[Dict[str, str]] = None) -> Tuple[bool, str]:

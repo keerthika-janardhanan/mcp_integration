@@ -171,7 +171,9 @@ _load_env_files()
 app = FastAPI(title="Test Artifact Backend", version="0.2.0")
 
 # CORS for local React dev server; adjust via env ALLOW_ORIGINS if needed
-allow_origins = os.getenv("ALLOW_ORIGINS", "http://localhost:5178").split(",")
+# Default includes common dev ports: 5178 (Vite), 3000 (CRA), 5173 (Vite alt)
+default_origins = "http://localhost:5178,http://localhost:3000,http://localhost:5173,http://127.0.0.1:5178"
+allow_origins = os.getenv("ALLOW_ORIGINS", default_origins).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in allow_origins if o.strip()],

@@ -16,6 +16,7 @@ from ...trial_spec_adapter import (
     prepare_trial_spec_path,
     trial_env_overrides,
 )
+from ...self_healing_trial_executor import execute_trial_with_self_healing
 
 
 router = APIRouter(prefix="/trial", tags=["trial"], dependencies=[Depends(jwt_required)])
@@ -138,3 +139,55 @@ async def stream(spec: str, headed: bool = True, frameworkRoot: Optional[str] = 
                     pass
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@router.post("/run-with-healing")
+async def run_with_healing(req: TrialRunRequest) -> Dict[str, Any]:
+    """
+    Execute trial run with automatic self-healing.
+    
+    Detects errors (import errors, export errors, etc.) and automatically fixes them.
+    Retries up to 5 times with progressive fixes.
+    
+    Returns:
+        - success: bool - Whether execution succeeded
+        - logs: str - All execution logs from all attempts
+        - attempts: int - Number of attempts made
+        - fixes_applied: list - Details of each fix applied
+        - final_content: str - Final (potentially fixed) code
+    """
+    repo_root = Path(req.frameworkRoot).resolve() if req.frameworkRoot else resolve_framework_root()
+    if not repo_root.exists():
+        raise HTTPException(status_code=404, detail="Framework root not found")
+
+    if not req.code or not req.code.strip():
+        raise HTTPException(status_code=400, detail="code must be provided for self-healing execution")
+    
+    try:
+        env = os.environ.copy()
+        env.update(trial_env_overrides(repo_root, case_id=(req.scenario or None), spec_path=None))
+        
+        result = execute_trial_with_self_healing(
+            script_content=req.code,
+            framework_root=repo_root,
+            headed=req.headed,
+            env_overrides=env,
+        )
+        
+        return {
+            "success": result["success"],
+            "logs": result["logs"],
+            "attempts": result["attempts"],
+            "fixes_applied": result.get("fixes_applied", []),
+            "final_content": result.get("final_content"),
+            "error": result.get("error"),
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "success": False,
+            "logs": f"Self-healing executor failed: {e}\n{traceback.format_exc()}",
+            "attempts": 0,
+            "fixes_applied": [],
+            "error": str(e),
+        }

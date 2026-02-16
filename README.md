@@ -8,6 +8,8 @@ Enterprise-grade test automation platform with AI-powered test generation, self-
 - **AI-Powered Test Generation**: Generate Playwright test scripts from recorded flows
 - **Self-Healing Tests**: Automatically fix failing locators using AI and web search
 - **Smart Recorder**: Record user interactions with enriched metadata
+- **Trace Analysis**: Compare captured actions vs actual browser events to diagnose missing steps
+- **Enhanced MutationObserver**: Capture programmatic DOM changes (checkboxes, buttons, custom components)
 - **Vector Database**: Intelligent context retrieval for test generation
 - **Multi-Framework Support**: Playwright, Cypress, Selenium
 - **Excel Integration**: Generate manual test cases with data mapping
@@ -169,7 +171,38 @@ if success:
 
 **See**: [docs/RUNTIME_SELF_HEALING.md](docs/RUNTIME_SELF_HEALING.md) for complete guide
 
-### 4. Vector Database Operations
+### 4. Trace Analysis (Diagnose Missing Actions)
+
+**Compare recorded actions with Playwright trace** to identify missing steps:
+
+```powershell
+# 1. Record with trace enabled (default)
+python -m app.recorder.run_playwright_recorder_v2 --url "https://example.com" --timeout 60
+
+# 2. Analyze the recording
+python -m app.recorder.trace_analyzer recordings/<session_name>
+
+# 3. View trace in Playwright Inspector
+playwright show-trace recordings/<session_name>/trace.zip
+```
+
+**Sample Output:**
+```
+📊 Summary:
+  - Trace events: 45
+  - Recorded actions: 42
+  - Missing events: 3
+  - Coverage: 93.3%
+
+❌ Missing Events:
+  1. Type: click → Selector: button[data-testid="submit"]
+  2. Type: fill → Selector: input#email
+  3. Type: check → Selector: input[type="checkbox"]#terms
+```
+
+**See**: [docs/TRACE_ANALYSIS.md](docs/TRACE_ANALYSIS.md) for complete guide
+
+### 5. Vector Database Operations
 
 ```powershell
 # Query the vector DB
@@ -336,6 +369,8 @@ ModuleNotFoundError: No module named 'app.core.mcp_client'
 ### Core Docs
 - [MCP Integration Guide](docs/MCP_INTEGRATION.md) - Complete MCP setup and usage
 - [Runtime Self-Healing](docs/RUNTIME_SELF_HEALING.md) - How incorrect XPath gets fixed automatically ⭐
+- [Trace Analysis](docs/TRACE_ANALYSIS.md) - Diagnose missing recorder actions with Playwright trace ⭐
+- [Trace Analysis Quick Ref](docs/TRACE_ANALYSIS_QUICK_REF.md) - Quick reference for trace analysis
 - [Self-Healing Flow Diagram](docs/self_healing_flow.md) - Visual guide to self-healing process
 - [Free Self-Healing Methodology](docs/FREE_SELF_HEALING.md) - Free approach without paid APIs
 

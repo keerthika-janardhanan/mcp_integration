@@ -1194,6 +1194,8 @@ ${refinedFlowSteps.map((step: any, idx: number) => {
             frameworkRoot: frameworkRoot,
             headed: true,
             scenario: testCaseId || testKeyword || sessionName || '',
+            sessionName: sessionName || testCaseId || testKeyword || '',  // For self-healing recorder metadata
+            selfHealing: true,  // Enable self-healing by default
             updateTestManager: true,
             // Prefer explicit IDs from UI; backend will fallback to Excel if omitted
             referenceIds: parsedIds.length > 1 ? parsedIds : undefined,

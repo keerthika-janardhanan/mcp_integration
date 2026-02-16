@@ -49,12 +49,6 @@ from playwright.sync_api import (
 from app.browser_utils import SUPPORTED_BROWSERS, normalize_browser_name
 from app.event_client import publish_recorder_event
 
-try:
-    from app.recorder.mcp_integration import get_playwright_mcp_recorder
-    HAS_MCP_INTEGRATION = True
-except ImportError:
-    HAS_MCP_INTEGRATION = False
-
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -320,42 +314,7 @@ PAGE_INJECT_SCRIPT = """
         sendCap(payload);
     };
     // Event capture (reduced noise)
-    // CRITICAL: Use mousedown to capture clicks BEFORE navigation destroys context
-    let __lastMousedown = 0;
-    document.addEventListener('mousedown', e => {
-        let el = targetOf(e);
-        // Only capture if it's a clickable element (button, link, etc.)
-        for (let i = 0; i < 5 && el; i++) {
-            const tag = (el.tagName || '').toLowerCase();
-            const type = (el.type || '').toLowerCase();
-            const role = (el.getAttribute && el.getAttribute('role')) || '';
-            const hasClick = el.onclick || el.hasAttribute('onclick');
-            
-            if (tag === 'button' || tag === 'a' || 
-                (tag === 'input' && ['submit', 'button', 'reset'].includes(type)) ||
-                role === 'button' || hasClick) {
-                
-                const now = Date.now();
-                // Prevent duplicate mousedown+click events
-                if (now - __lastMousedown > 100) {
-                    send('click', el, {button:e.button, source:'mousedown'});
-                    __lastMousedown = now;
-                }
-                break;
-            }
-            el = el.parentElement;
-        }
-    }, true);
-    
-    // Regular click handler (backup for non-button elements)
-    document.addEventListener('click', e => {
-        const now = Date.now();
-        // Skip if mousedown already captured this click
-        if (now - __lastMousedown > 100) {
-            send('click', targetOf(e), {button:e.button});
-        }
-    }, true);
-    
+    document.addEventListener('click', e => send('click', targetOf(e), {button:e.button}), true);
     document.addEventListener('dblclick', e => send('dblclick', targetOf(e), {button:e.button}), true);
     document.addEventListener('contextmenu', e => send('contextmenu', targetOf(e), {button:e.button}), true);
     document.addEventListener('submit', e => { const f=targetOf(e); const act={}; try{ act.action=f.action||''; act.method=f.method||''; }catch(_){} send('submit', f, act); }, true);
@@ -396,13 +355,6 @@ PAGE_INJECT_SCRIPT = """
     window.addEventListener('beforeunload', () => {
         while (capQ.length && deliver('pythonRecorderCapture', capQ[0])) capQ.shift();
         while (ctxQ.length && deliver('pythonRecorderPageContext', ctxQ[0])) ctxQ.shift();
-    });
-    // Also flush on visibilitychange (for tab switches/closes)
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') {
-            while (capQ.length && deliver('pythonRecorderCapture', capQ[0])) capQ.shift();
-            while (ctxQ.length && deliver('pythonRecorderPageContext', ctxQ[0])) ctxQ.shift();
-        }
     });
     // SPA route changes
     const _origPushState = history.pushState; const _origReplaceState = history.replaceState;
@@ -471,16 +423,6 @@ class RecorderSession:
         self.ended_at: Optional[str] = None
         self.actions: List[Dict[str, Any]] = []
         self.page_events: List[Dict[str, Any]] = []
-        
-        # Initialize Playwright MCP integration (optional)
-        self.mcp_recorder = None
-        if HAS_MCP_INTEGRATION:
-            try:
-                self.mcp_recorder = get_playwright_mcp_recorder()
-                if self.mcp_recorder.mcp_available:
-                    print("[MCP] Playwright Test MCP integration enabled")
-            except Exception as e:
-                print(f"[MCP] Warning: MCP integration disabled: {e}")
         self._artifacts: Dict[str, Optional[str]] = {"har": None, "trace": None}
         self._warnings: List[str] = []
 
@@ -806,27 +748,6 @@ class RecorderSession:
         if not action_id:
             action_id = f"A-{len(self.actions) + 1:03}"
             data["actionId"] = action_id
-        
-        # Enhance with MCP snapshot data (optional, non-blocking)
-        if self.mcp_recorder and self.mcp_recorder.mcp_available and runtime_page:
-            try:
-                # Only enhance significant actions (click, input, change)
-                action_type = data.get("action", "")
-                if action_type in ("click", "input", "change", "select"):
-                    data = self.mcp_recorder.enhance_recording_with_snapshots(runtime_page, data)
-                    
-                    # Generate alternative locators via MCP
-                    element_data = data.get("element", {})
-                    css_selector = element_data.get("cssPath") or element_data.get("stableSelector")
-                    if css_selector:
-                        mcp_locators = self.mcp_recorder.generate_locators_from_element(
-                            css_selector, runtime_page
-                        )
-                        if mcp_locators:
-                            data.setdefault("selectorStrategies", {}).update(mcp_locators)
-            except Exception as e:
-                # MCP enhancement is optional - don't break recording
-                pass
 
         raw_ts = data.get("timestamp")
         timestamp_iso = _timestamp_to_iso(raw_ts) or received_at
@@ -893,7 +814,7 @@ class RecorderSession:
         except Exception:
             pass
 
-    def finalize(self, har_path: Optional[Path], trace_path: Optional[Path], page: Optional[Page] = None) -> Path:
+    def finalize(self, har_path: Optional[Path], trace_path: Optional[Path]) -> Path:
         self._refresh_flow_name()
         self.ended_at = _iso_now()
         if har_path and har_path.exists():
@@ -906,23 +827,6 @@ class RecorderSession:
                 self._artifacts["trace"] = str(trace_path.relative_to(self.session_dir))
             except Exception:
                 self._artifacts["trace"] = str(trace_path)
-        
-        # Capture MCP diagnostics at end of session (optional)
-        if self.mcp_recorder and self.mcp_recorder.mcp_available and page and not page.is_closed():
-            try:
-                console_msgs = self.mcp_recorder.capture_console_messages(page, level="warning")
-                if console_msgs:
-                    self._artifacts["mcp_console_messages"] = len(console_msgs)
-                    print(f"[MCP] Captured {len(console_msgs)} console messages")
-                
-                network_reqs = self.mcp_recorder.capture_network_requests(page, include_static=False)
-                if network_reqs:
-                    self._artifacts["mcp_network_requests"] = len(network_reqs)
-                    print(f"[MCP] Captured {len(network_reqs)} network requests")
-            except Exception as e:
-                # MCP diagnostics are optional
-                pass
-        
         self._persist()
         
         # Automatically refine the metadata to create refined.json
@@ -1803,9 +1707,7 @@ def main() -> None:
             pass
         if session:
             try:
-                # Pass page to finalize for optional MCP diagnostics capture
-                current_page = page if (page and not page.is_closed()) else None
-                meta_path = session.finalize(har_path=har_path, trace_path=trace_path, page=current_page)
+                meta_path = session.finalize(har_path=har_path, trace_path=trace_path)
                 metadata_written = True
                 print(f"[recorder] Recorded {len(session.actions)} actions.")
                 print(f"[recorder] Metadata saved to {meta_path}")

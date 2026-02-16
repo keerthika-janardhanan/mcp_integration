@@ -418,80 +418,52 @@ class AgenticScriptAgent:
                 "start_url",
             ],
             template=(
-                "You are a Playwright test automation expert. Generate production-ready TypeScript test files.\n\n"
-                "TASK: {task_type}\n\n"
+                "Generate Playwright TypeScript test files. Output ONLY valid JSON.\n\n"
                 "SCENARIO: {scenario}\n"
-                "FLOW NAME: {flow_name}\n"
-                "START URL: {start_url}\n\n"
-                "═══════════════════════════════════════════════════════════════════════════════\n"
-                "RECORDED STEPS FROM USER (with [Page Title] prefix):\n"
-                "═══════════════════════════════════════════════════════════════════════════════\n"
+                "FLOW: {flow_name}\n"
+                "URL: {start_url}\n\n"
+                "STEPS (with [Page Title]):\n"
                 "{recorded_steps}\n\n"
-                "═══════════════════════════════════════════════════════════════════════════════\n"
-                "REFERENCE IMPLEMENTATION (YOUR TARGET STRUCTURE):\n"
-                "═══════════════════════════════════════════════════════════════════════════════\n"
+                "REFERENCE:\n"
                 "{reference_files}\n\n"
-                "═══════════════════════════════════════════════════════════════════════════════\n"
-                "CRITICAL REQUIREMENTS - MUST FOLLOW EXACTLY:\n"
-                "═══════════════════════════════════════════════════════════════════════════════\n\n"
-                "1. PAGE-BASED FILE STRUCTURE (MANDATORY):\n"
-                "   ⚠️ DETECT UNIQUE PAGE TITLES FROM STEPS (e.g., [OneCognizant], [guidewire-hub - Sign In], [Guidewire Home])\n"
-                "   ⚠️ CREATE SEPARATE FILES PER PAGE:\n"
-                "   • locators/<PageTitle>.ts (e.g., locators/OneCognizant.ts)\n"
-                "   • pages/<PageTitle>.pages.ts (e.g., pages/OneCognizant.pages.ts)\n"
-                "   ⚠️ ONE TEST FILE: tests/{flow_name}.spec.ts\n"
-                "   ⚠️ Test file MUST import ALL page classes and stitch them together in sequential steps\n\n"
-                "2. LOCATOR STRATEGY (ALWAYS 2+ ATTRIBUTES - MANDATORY):\n"
-                "   Priority 1: visible_text + playwright_property → page.getByRole('button', {{ name: 'Submit' }}).and(page.locator('[data-test=\"submit-btn\"]'))\n"
-                "   Priority 2: visible_text + css → page.getByText('Submit').and(page.locator('button.submit-btn'))\n"
-                "   Priority 3: playwright + css/xpath → page.getByRole('textbox', {{ name: 'Email' }}).and(page.locator('input[name=\"email\"]'))\n"
-                "   Priority 4: css + html_attributes → page.locator('input[type=\"text\"][name=\"email\"][placeholder=\"Enter email\"]')\n"
-                "   Priority 5: xpath + html → page.locator('xpath=//input[@type=\"text\" and @name=\"email\" and @placeholder=\"Enter email\"]')\n"
-                "   ❌ NEVER use single-attribute selectors: page.locator('#email') ← WRONG\n"
-                "   ✅ ALWAYS combine 2+ attributes for resilience\n\n"
-                "3. PAGE CLASS STRUCTURE (MATCH REFERENCE EXACTLY):\n"
-                "   • import {{ Page, Locator }} from '@playwright/test';\n"
-                "   • import HelperClass from \"../util/methods.utility.ts\";\n"
-                "   • import locators from \"../locators/<PageTitle>.ts\";\n"
-                "   • Properties: page: Page, helper: HelperClass, ALL element Locators\n"
-                "   • Constructor: Initialize helper, map ALL locators with page.locator(locators.elementName)\n"
-                "   • Include: coerceValue, normaliseDataKey, resolveDataValue, applyData methods\n"
-                "   • Setter methods for each input field (setSupplier, setNumber, setAmount, etc.)\n"
-                "   • applyData method with fallbackValues and index support for duplicate fields\n\n"
-                "4. TEST FILE STRUCTURE (MATCH REFERENCE EXACTLY):\n"
-                "   • import {{ test }} from \"./testSetup.ts\";\n"
-                "   • import ALL page classes: import OneCognizantPage from \"../pages/OneCognizant.pages.ts\";\n"
-                "   • import LoginPage and HomePage\n"
-                "   • import {{ getTestToRun, shouldRun, readExcelData }} from \"../util/csvFileManipulation.ts\";\n"
-                "   • import {{ attachScreenshot, namedStep }} from \"../util/screenshot.ts\";\n"
-                "   • test.beforeAll: executionList = getTestToRun(...)\n"
-                "   • Declare ALL page instances: let oneCognizantPage: OneCognizantPage;\n"
-                "   • Initialize in test: oneCognizantPage = new OneCognizantPage(page);\n"
-                "   • Data handling: Read from Excel with ReferenceID, DatasheetName, IDName\n"
-                "   • Each step: await namedStep(\"Step X - Action\", page, testinfo, async () => {{ ... }})\n"
-                "   • Screenshot after EVERY step: attachScreenshot(\"Step X\", testinfo, screenshot)\n\n"
-                "5. DATA MAPPING (CRITICAL):\n"
-                "   ✅ CORRECT: await createinvoicepayablespage.applyData(dataRow, [\"Supplier\"], 0)\n"
-                "   ✅ CORRECT: const val = getDataValue('BusinessUnit', 'FU01'); await page.getByText(val).click()\n"
-                "   ✅ CORRECT: await page.applyData(dataRow, [\"Amount\"], 1) // for 2nd Amount field\n"
-                "   ❌ WRONG: await page.supplier.fill('Allied Manufacturing') // hardcoded value\n"
-                "   ❌ WRONG: await page.alliedManufacturing10001.click() // hardcoded element\n\n"
-                "6. OUTPUT FORMAT (STRICT JSON):\n"
-                "   Return ONLY valid JSON (no markdown fences, no explanations):\n"
-                "   {{\n"
-                "     \"locators/<PageTitle1>.ts\": \"<complete TypeScript code>\",\n"
-                "     \"locators/<PageTitle2>.ts\": \"<complete TypeScript code>\",\n"
-                "     \"pages/<PageTitle1>.pages.ts\": \"<complete TypeScript code>\",\n"
-                "     \"pages/<PageTitle2>.pages.ts\": \"<complete TypeScript code>\",\n"
-                "     \"tests/{flow_name}.spec.ts\": \"<complete TypeScript code>\"\n"
-                "   }}\n\n"
-                "⚠️ MUST GENERATE:\n"
-                "• Separate locator file per unique page title\n"
-                "• Separate page file per unique page title\n"
-                "• One test file that imports and uses ALL page classes\n"
-                "• Every locator MUST have 2+ attributes (NEVER single attribute)\n"
-                "• Test data MUST use applyData() or getDataValue() (NEVER hardcoded values)\n\n"
-                "Generate complete, production-ready code. NO placeholders. NO TODOs. NO comments like '// Add more locators'.\n"
+                "OUTPUT FORMAT (REQUIRED):\n"
+                "{{\n"
+                "  \"locators/PageTitle1.ts\": \"export default {{ element1: 'input[name=\\\"user\\\"][type=\\\"text\\\"]', ... }}\",\n"
+                "  \"pages/PageTitle1.pages.ts\": \"import {{ Page, Locator }} from '@playwright/test';\\nimport HelperClass from '../util/methods.utility.ts';\\nimport locators from '../locators/PageTitle1.ts';\\n\\nclass PageTitle1Page {{\\n  page: Page;\\n  helper: HelperClass;\\n  element1: Locator;\\n  constructor(page: Page) {{\\n    this.page = page;\\n    this.helper = new HelperClass(page);\\n    this.element1 = page.locator(locators.element1);\\n  }}\\n  // methods...\\n}}\\nexport default PageTitle1Page;\",\n"
+                "  \"tests/{flow_name}.spec.ts\": \"import {{ test }} from './testSetup.ts';\\nimport PageTitle1Page from '../pages/PageTitle1.pages.ts';\\n...\"\n"
+                "}}\n\n"
+                "RULES:\n"
+                "1. PAGE SEPARATION: Extract unique page titles from [Page Title] in steps.\n"
+                "   Example: \"[Workday Sign In]\" → files: locators/WorkdaySignIn.ts, pages/WorkdaySignIn.pages.ts\n"
+                "   Create one locator + page file per unique page title.\n\n"
+                "2. LOCATORS (2+ ATTRIBUTES MANDATORY):\n"
+                "   Combine: role+attribute, text+css, name+type, id+class\n"
+                "   Good: \"input[name='email'][type='text']\" or page.getByRole('button',{{name:'Submit'}}).and(page.locator('[data-test=\"btn\"]'))\n"
+                "   Bad: \"#email\" (single attribute)\n\n"
+                "3. PAGE CLASS:\n"
+                "   - import {{ Page, Locator }} from '@playwright/test';\n"
+                "   - import HelperClass from \"../util/methods.utility.ts\";\n"
+                "   - import locators from \"../locators/PageTitle.ts\";\n"
+                "   - Declare class (NOT export): class PageTitlePage {{ ... }}\n"
+                "   - Properties: page, helper, element Locators\n"
+                "   - Constructor: this.helper = new HelperClass(page); this.element = page.locator(locators.element);\n"
+                "   - Methods: coerceValue(v), normaliseDataKey(k), resolveDataValue(row, keys), applyData(row, keys, idx)\n"
+                "   - applyData MUST include env fallback: if (!value) {{ value = process.env.USERNAME || process.env.PASSWORD || ''; }}\n"
+                "   - Explicit waits: await element.waitFor({{state:'visible',timeout:30000}}); await page.waitForTimeout(500);\n"
+                "   - END FILE: export default PageTitlePage; (MUST be last line)\n\n"
+                "4. TEST FILE:\n"
+                "   - import {{ test }} from \"./testSetup.ts\";\n"
+                "   - Import ONLY page classes from recorded steps (check [Page Title])\n"
+                "   - import {{ getTestToRun, shouldRun, readExcelData }} from \"../util/csvFileManipulation.ts\";\n"
+                "   - import {{ attachScreenshot, namedStep }} from \"../util/screenshot.ts\";\n"
+                "   - test.beforeAll(() => {{ executionList = getTestToRun(path.join(__dirname, '../testmanager.xlsx')); }});\n"
+                "   - Declare page instances: let workdaySignInPage: WorkdaySignInPage;\n"
+                "   - Initialize: workdaySignInPage = new WorkdaySignInPage(page);\n"
+                "   - Wrap steps: await namedStep(\"Step 1 - Action\", page, testinfo, async () => {{ ... }});\n"
+                "   - Screenshot: const screenshot = await page.screenshot(); attachScreenshot(\"Step 1\", testinfo, screenshot);\n\n"
+                "5. DATA: const xlsx=require('xlsx'); workBook=xlsx.readFile(path); allData=xlsx.utils.sheet_to_json(workSheet); row=allData.find(r=>r[idCol]===refId). File path: ../data/DatasheetName.\n"
+                "   VALIDATE: if (!dataRow || Object.keys(dataRow).length === 0) throw new Error('No test data found');\n\n"
+                "Generate complete, valid JSON. No markdown. No placeholders.\n"
             ),
         )
     def _ensure_llm(self):
@@ -830,8 +802,9 @@ class AgenticScriptAgent:
                 continue
             
             steps = data.get("steps") or []
-            # Extract original_url and pages metadata from top-level
+            # Extract original_url, startUrl, and pages metadata from top-level
             original_url = str(data.get("original_url") or "").strip()
+            start_url = str(data.get("startUrl") or "").strip()  # From refined JSON metadata
             pages_metadata = data.get("pages") or {}
             
             # Build URL to page title mapping and pageId to page info mapping
@@ -876,7 +849,8 @@ class AgenticScriptAgent:
                 action = str(step.get("action") or "").strip()
                 
                 # Extract navigation from element if not already set
-                navigation = str(step.get("navigation") or "").strip()
+                # First check for 'visibleText' field which is the actual field name in refined JSONs
+                navigation = str(step.get("navigation") or step.get("visibleText") or "").strip()
                 if not navigation:
                     # Try to get from visibleText or element selector
                     visible_text = str(step.get("visibleText") or "").strip()
@@ -984,6 +958,7 @@ class AgenticScriptAgent:
                         "locators": locators,
                         "element": element,
                         "original_url": original_url,
+                        "startUrl": start_url,  # Include startUrl from metadata
                         "pageUrl": page_url,
                         "pageTitle": page_title,
                     }
@@ -1549,27 +1524,55 @@ class AgenticScriptAgent:
         test_data_mapping = []
         import re
         
+        logger.info("[Test Data Mapping] Extracting data mappings from generated files")
+        logger.info(f"[Test Data Mapping] Scanning {len(all_files)} files")
+        
         # Extract from test files by parsing applyData() calls
         for file_path, content in all_files.items():
+            logger.info(f"[Test Data Mapping] Checking file: {file_path}")
+            
             if '/tests/' in file_path or file_path.startswith('tests/') or file_path.endswith('.spec.ts'):
-                # Pattern: await page.applyData(dataRow, ["ColumnName", "Alias1", "Alias2"], index)
-                # We want to extract the first element of the array (the primary column name)
-                apply_data_pattern = r'await\s+\w+\.applyData\(dataRow,\s*\[([^\]]+)\](?:,\s*(\d+))?\)'
-                matches = re.findall(apply_data_pattern, content)
+                logger.info(f"[Test Data Mapping] Detected test file: {file_path}")
                 
-                for column_list_str, index_str in matches:
+                # Multiple patterns to catch different applyData formats
+                patterns = [
+                    # Pattern 1: await page.applyData(dataRow, ["ColumnName"], 0)
+                    r'await\s+\w+\.applyData\(dataRow,\s*\[([^\]]+)\](?:,\s*(\d+))?\)',
+                    # Pattern 2: await pageName.applyData(dataRow, ["ColumnName"])
+                    r'await\s+[a-zA-Z0-9_]+\.applyData\([^,]+,\s*\[([^\]]+)\]',
+                    # Pattern 3: page.applyData(dataRow, ["ColumnName"], index)
+                    r'\.applyData\(\s*dataRow\s*,\s*\[([^\]]+)\]',
+                ]
+                
+                all_matches = []
+                for pattern in patterns:
+                    matches = re.findall(pattern, content)
+                    all_matches.extend(matches)
+                
+                logger.info(f"[Test Data Mapping] Found {len(all_matches)} applyData calls in {file_path}")
+                
+                for match in all_matches:
+                    # Handle both tuple (with index) and string (without index) matches
+                    if isinstance(match, tuple):
+                        column_list_str = match[0]
+                    else:
+                        column_list_str = match
+                    
                     # Parse the column names array
                     column_names = re.findall(r'["\']([^"\']+)["\']', column_list_str)
                     if not column_names:
+                        logger.warning(f"[Test Data Mapping] Could not parse column names from: {column_list_str}")
                         continue
                     
                     # First element is the primary Excel column name
                     primary_column = column_names[0]
+                    logger.info(f"[Test Data Mapping] Found column: {primary_column}")
                     
                     # Check if this column already exists
                     existing = next((m for m in test_data_mapping if m['columnName'] == primary_column), None)
                     if existing:
                         existing['occurrences'] += 1
+                        logger.info(f"[Test Data Mapping] Updated occurrences for {primary_column}: {existing['occurrences']}")
                     else:
                         test_data_mapping.append({
                             'columnName': primary_column,
@@ -1577,12 +1580,15 @@ class AgenticScriptAgent:
                             'actionType': 'fill',  # Default to fill, can be refined later
                             'methods': ['applyData']  # Actual method used in code
                         })
+                        logger.info(f"[Test Data Mapping] Added new mapping: {primary_column}")
         
         # If no mappings found from test files, extract from page files as fallback
         if not test_data_mapping:
             logger.info("[Test Data Mapping] No applyData calls found in test files, extracting from page files")
             for file_path, content in all_files.items():
                 if '/pages/' in file_path or file_path.startswith('pages/'):
+                    logger.info(f"[Test Data Mapping] Checking page file: {file_path}")
+                    
                     # Extract from applyData method's fallbackValues
                     fallback_pattern = r'const fallbackValues: Record<string, string> = \{([^}]+)\}'
                     fallback_match = re.search(fallback_pattern, content, re.DOTALL)
@@ -1590,6 +1596,8 @@ class AgenticScriptAgent:
                         fallback_content = fallback_match.group(1)
                         # Extract column names from "ColumnName": "" entries
                         column_matches = re.findall(r'["\']([^"\']+)["\']\s*:', fallback_content)
+                        logger.info(f"[Test Data Mapping] Found {len(column_matches)} columns in fallbackValues")
+                        
                         for column_name in column_matches:
                             if column_name not in [m['columnName'] for m in test_data_mapping]:
                                 test_data_mapping.append({
@@ -1598,10 +1606,30 @@ class AgenticScriptAgent:
                                     'actionType': 'fill',
                                     'methods': ['applyData']
                                 })
+                                logger.info(f"[Test Data Mapping] Added column from page fallback: {column_name}")
         
         payload['testDataMapping'] = test_data_mapping
         logger.info(f"[LLM Enhancement] Final payload: {list(payload.keys())}")
         logger.info(f"[LLM Enhancement] Generated {len(all_files)} files with {len(test_data_mapping)} data mappings")
+        
+        if test_data_mapping:
+            logger.info(f"[Test Data Mapping] ✓ Successfully extracted {len(test_data_mapping)} mappings:")
+            for mapping in test_data_mapping:
+                logger.info(f"  - {mapping['columnName']} (occurrences: {mapping['occurrences']})")
+        else:
+            logger.warning("[Test Data Mapping] ⚠ No data mappings found! Checking if LLM generated applyData calls...")
+            # Debug: Check if any test file has "applyData" string at all
+            for file_path, content in all_files.items():
+                if '/tests/' in file_path or file_path.startswith('tests/') or file_path.endswith('.spec.ts'):
+                    if 'applyData' in content:
+                        logger.info(f"[Test Data Mapping] DEBUG: Found 'applyData' string in {file_path}")
+                        # Show a snippet
+                        lines_with_apply = [line for line in content.split('\n') if 'applyData' in line]
+                        for line in lines_with_apply[:3]:  # Show first 3 occurrences
+                            logger.info(f"[Test Data Mapping] DEBUG:   {line.strip()}")
+                    else:
+                        logger.warning(f"[Test Data Mapping] DEBUG: No 'applyData' found in {file_path}")
+        
         return payload
     
     def _generate_payload_with_llm(
@@ -2272,12 +2300,13 @@ class AgenticScriptAgent:
             f'  test({scenario_literal}, async ({{ page }}) => {{',
         ])
         
-        # Extract start URL from first page's first step
+        # Extract start URL from metadata (prefer startUrl from refined JSON)
         start_url = ''
         if grouped_pages:
             first_page_steps = next(iter(grouped_pages.values()))
             if first_page_steps:
-                start_url = first_page_steps[0].get('pageUrl') or first_page_steps[0].get('original_url') or ''
+                # Use startUrl from metadata first, fallback to pageUrl
+                start_url = first_page_steps[0].get('startUrl') or first_page_steps[0].get('pageUrl') or first_page_steps[0].get('original_url') or ''
         
         # Add navigation to start URL
         if start_url:
@@ -2711,9 +2740,10 @@ class AgenticScriptAgent:
             'import { test } from "../testSetup";',
             f'import PageObject from "{_relative_import(test_path, page_path)}";',
         ]
-        if login_page_file:
+        # Only import LoginPage/HomePage if they actually exist in framework
+        if login_page_file and login_page_file.exists():
             spec_lines.append(f'import LoginPage from "{_relative_import(test_path, login_page_file)}";')
-        if home_page_file:
+        if home_page_file and home_page_file.exists():
             spec_lines.append(f'import HomePage from "{_relative_import(test_path, home_page_file)}";')
 
         spec_lines.extend([
@@ -2746,9 +2776,10 @@ class AgenticScriptAgent:
             f'  let {page_var}: PageObject;',
         ])
 
-        if login_page_file:
+        # Only declare page variables if files actually exist
+        if login_page_file and login_page_file.exists():
             spec_lines.append('  let loginPage: LoginPage;')
-        if home_page_file:
+        if home_page_file and home_page_file.exists():
             spec_lines.append('  let homePage: HomePage;')
         spec_lines.append('')
         spec_lines.append('  const run = (name: string, fn: ({ page }, testinfo: any) => Promise<void>) =>')
@@ -2756,9 +2787,10 @@ class AgenticScriptAgent:
         spec_lines.append('')
         spec_lines.append(f'  run({scenario_literal}, async ({{ page }}, testinfo) => {{')
         spec_lines.append(f'    {page_var} = new PageObject(page);')
-        if login_page_file:
+        # Only initialize page objects if files actually exist
+        if login_page_file and login_page_file.exists():
             spec_lines.append('    loginPage = new LoginPage(page);')
-        if home_page_file:
+        if home_page_file and home_page_file.exists():
             spec_lines.append('    homePage = new HomePage(page);')
         spec_lines.extend([
             '    const testCaseId = testinfo.title;',

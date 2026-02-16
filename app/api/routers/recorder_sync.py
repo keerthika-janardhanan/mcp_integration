@@ -40,7 +40,7 @@ class RecorderStartResponse(BaseModel):
 
 
 def _build_recorder_command(session_id: str, url: str, flow_name: str, options: Dict[str, Any], session_dir: Path) -> list:
-    """Build the command to launch the recorder."""
+    """Build the command to launch the minimal recorder with trace."""
     # Normalize URL - add https:// if missing protocol
     if not url.startswith(('http://', 'https://')):
         url = f'https://{url}'
@@ -57,14 +57,8 @@ def _build_recorder_command(session_id: str, url: str, flow_name: str, options: 
         session_id,
     ]
     
-    # Minimal recorder only supports browser, timeout, and headless
-    if options.get("headless", False):
-        cmd.append("--headless")
-    
-    if "browser" in options:
-        cmd.extend(["--browser", options["browser"]])
     if "timeout" in options:
-        cmd.extend(["--timeout", str(options["timeout"])])
+        cmd.extend(["--timeout", str(options["timeout"])])  # Default 10 minutes
     
     return cmd
 

@@ -326,76 +326,137 @@ def _filter_auth_steps(actions: List[Dict[str, Any]], original_url: Optional[str
 
 
 def _deduplicate_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Remove consecutive duplicate actions and redundant event sequences.
+    """Smart deduplication with element grouping and parent-child detection.
     
-    Rules:
-    1. click → input (same element): Remove click, keep input
-    2. input → change (same element): Keep input, remove change
-    3. Skip checkbox input/change on same element
-    4. Remove exact duplicates (same element + action)
+    Strategy:
+    - Group actions by element ID/name (infinite time for same element)
+    - Group clicks within 1 second (catches span-inside-button)
+    - Priority: input > click > change > submit
     """
     if not actions:
         return []
     
     import re
-    deduplicated = [actions[0]]
     
-    for action in actions[1:]:
-        # Get current action details
-        elem = action.get("element") or {}
-        sel = elem.get("selector") or {}
-        css = sel.get("css") or elem.get("cssPath") or ""
-        xpath = sel.get("xpath") or elem.get("xpath") or ""
-        action_type = action.get("action", "")
-        html = elem.get("html") or ""
+    def get_element_id(action: Dict[str, Any]) -> str:
+        """Get unique element identifier from id, name, or test-id ONLY.
         
-        # Extract name/id for reliable element matching
-        name_match = re.search(r'name="([^"]+)"', html) if html else None
-        id_match = re.search(r'id="([^"]+)"', html) if html else None
-        element_id = name_match.group(1) if name_match else (id_match.group(1) if id_match else "")
+        Don't use CSS/XPath as fallback - they're too specific for spans inside buttons.
+        """
+        html = action.get("element", {}).get("html", "")
         
-        # Get previous action details
-        prev = deduplicated[-1]
-        prev_elem = prev.get("element") or {}
-        prev_sel = prev_elem.get("selector") or {}
-        prev_css = prev_sel.get("css") or prev_elem.get("cssPath") or ""
-        prev_xpath = prev_sel.get("xpath") or prev_elem.get("xpath") or ""
-        prev_action_type = prev.get("action", "")
-        prev_html = prev_elem.get("html") or ""
+        # Try data-testid first (most stable)
+        testid = re.search(r'data-testid="([^"]+)"', html)
+        if testid:
+            return f"testid:{testid.group(1)}"
         
-        # Extract previous name/id
-        prev_name_match = re.search(r'name="([^"]+)"', prev_html) if prev_html else None
-        prev_id_match = re.search(r'id="([^"]+)"', prev_html) if prev_html else None
-        prev_element_id = prev_name_match.group(1) if prev_name_match else (prev_id_match.group(1) if prev_id_match else "")
+        # Try id attribute
+        id_match = re.search(r'\bid="([^"]+)"', html)
+        if id_match:
+            return f"id:{id_match.group(1)}"
         
-        # Check if elements match (CSS, XPath, or name/id)
-        elements_match = (
-            (css and css == prev_css) or 
-            (xpath and xpath == prev_xpath) or
-            (element_id and element_id == prev_element_id)
-        )
+        # Try name attribute
+        name_match = re.search(r'name="([^"]+)"', html)
+        if name_match:
+            return f"name:{name_match.group(1)}"
         
-        # Check if checkbox/radio
-        is_checkbox = 'type="checkbox"' in html or 'type="radio"' in html
+        # Try aria-label (useful for Workday buttons)
+        label = re.search(r'aria-label="([^"]+)"', html)
+        if label:
+            return f"label:{label.group(1)}"
         
-        # RULE 1: click → input (same element) = Remove click, keep input
-        if elements_match and prev_action_type == "click" and action_type == "input":
-            deduplicated[-1] = action  # Replace click with input
-            continue
+        # No stable ID - return empty string
+        return ""
+    
+    def is_checkbox(html: str) -> bool:
+        return 'type="checkbox"' in html or 'type="radio"' in html
+    
+    def is_form_input(html: str) -> bool:
+        return '<input' in html or '<textarea' in html
+    
+    def are_related_clicks(action1: Dict, action2: Dict) -> bool:
+        """Check if two clicks are related (span inside button, etc.)"""
+        time1 = action1.get("timestamp", 0)
+        time2 = action2.get("timestamp", 0)
         
-        # RULE 2: input → change (same element) = Keep input, remove change
-        if elements_match and prev_action_type == "input" and action_type == "change":
-            continue  # Skip change, keep input
+        # Must be within 1 second
+        if abs(time2 - time1) > 1000:
+            return False
         
-        # RULE 3: Skip checkbox/radio input/change on same element
-        if is_checkbox and action_type in ["input", "change"] and elements_match:
-            continue
+        # Check if visible text matches (span inside button scenario)
+        text1 = action1.get("visibleText", "").strip()
+        text2 = action2.get("visibleText", "").strip()
         
-        # RULE 4: Skip exact duplicates (same element + action)
-        if elements_match and action_type == prev_action_type:
-            continue
+        return text1 and text1 == text2
+    
+    # Pass 1: Group actions by element ID
+    element_groups = {}
+    no_id_actions = []
+    
+    for action in actions:
+        elem_id = get_element_id(action)
+        if elem_id:
+            if elem_id not in element_groups:
+                element_groups[elem_id] = []
+            element_groups[elem_id].append(action)
+        else:
+            no_id_actions.append(action)
+    
+    # Pass 2: Deduplicate each element group
+    deduplicated = []
+    processed_indices = set()
+    
+    for elem_id, group in element_groups.items():
+        if len(group) == 1:
+            action = group[0]
+            action_type = action.get("action", "")
+            html = action.get("element", {}).get("html", "")
             
-        deduplicated.append(action)
+            # Skip checkbox input/change
+            if is_checkbox(html) and action_type in ["input", "change"]:
+                continue
+            
+            deduplicated.append(action)
+        else:
+            # Multiple actions on same element - apply priority
+            html = group[0].get("element", {}).get("html", "")
+            action_map = {a.get("action", ""): a for a in group}
+            
+            if is_checkbox(html):
+                # Checkbox: keep only click
+                if "click" in action_map:
+                    deduplicated.append(action_map["click"])
+            elif is_form_input(html):
+                # Form input: keep input, discard click/change
+                if "input" in action_map:
+                    deduplicated.append(action_map["input"])
+            else:
+                # Button/link: keep click, discard submit
+                if "click" in action_map:
+                    deduplicated.append(action_map["click"])
+                elif "submit" in action_map:
+                    deduplicated.append(action_map["submit"])
+                else:
+                    deduplicated.append(group[0])
+    
+    # Pass 3: Handle actions without IDs (detect parent-child clicks)
+    for action in no_id_actions:
+        # Skip if this action is a duplicate of an existing action
+        is_duplicate = False
+        
+        if action.get("action") == "click":
+            for existing in deduplicated:
+                if existing.get("action") == "click" and are_related_clicks(action, existing):
+                    is_duplicate = True
+                    break
+        
+        if not is_duplicate:
+            deduplicated.append(action)
+    
+    # Sort by timestamp
+    deduplicated.sort(key=lambda a: a.get("timestamp", 0))
+    
+    return deduplicated
     
     return deduplicated
 
@@ -499,6 +560,10 @@ def auto_refine_and_ingest(
 
     with output_path.open("w", encoding="utf-8") as fh:
         json.dump(refined_flow, fh, indent=2, ensure_ascii=False)
+    
+    # Skip clean metadata generation for now - metadata_refiner expects different format
+    # The refined.json is the main output; clean.json was just a bonus
+    # TODO: Update metadata_refiner to handle new minimal metadata format
 
     ingest_stats: Optional[Dict[str, Any]] = None
     ingest_error: Optional[str] = None

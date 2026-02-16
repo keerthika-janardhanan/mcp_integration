@@ -135,28 +135,118 @@ MINIMAL_INJECT = """
     
     // Store actions in window for polling
     window.__getRecordedActions = () => {
+        // Include any pending actions from localStorage
+        try {
+            const pending = JSON.parse(localStorage.getItem('__minRecPending') || '[]');
+            if (pending.length > 0) {
+                actions.push(...pending);
+                localStorage.removeItem('__minRecPending');
+            }
+        } catch (e) {}
+        
         const result = actions.slice();
         actions.length = 0;
         return result;
     };
     
-    document.addEventListener('click', (e) => capture('click', e.target), { capture: true, passive: true });
+    // CRITICAL: Capture clicks BEFORE navigation with immediate flush
+    // Use mousedown (fires before click) to catch actions that trigger navigation
+    let lastMousedownTime = 0;
+    document.addEventListener('mousedown', (e) => {
+        let target = e.target;
+        
+        // Walk up to find clickable parent (handles nested elements like <div><span>Text</span></div>)
+        let clickable = target;
+        for (let i = 0; i < 5 && clickable; i++) {
+            const tag = clickable.tagName;
+            const type = (clickable.type || '').toLowerCase();
+            const role = clickable.getAttribute('role');
+            const onclick = clickable.onclick || clickable.hasAttribute('onclick');
+            
+            // Check if element is clickable
+            if (tag === 'BUTTON' ||
+                tag === 'A' ||
+                (tag === 'INPUT' && ['submit', 'button', 'reset'].includes(type)) ||
+                role === 'button' ||
+                onclick) {
+                
+                // Capture the click action
+                const now = Date.now();
+                // Prevent duplicate mousedown+click on same element
+                if (now - lastMousedownTime > 100) {
+                    capture('click', clickable);
+                    lastMousedownTime = now;
+                    
+                    // IMMEDIATE localStorage backup (survives navigation/page unload)
+                    try {
+                        const pending = JSON.parse(localStorage.getItem('__minRecPending') || '[]');
+                        pending.push(actions[actions.length - 1]);
+                        localStorage.setItem('__minRecPending', JSON.stringify(pending));
+                    } catch (e) {}
+                }
+                break;
+            }
+            clickable = clickable.parentElement;
+        }
+    }, { capture: true, passive: true });
+    
+    // Regular click handler (backup, but mousedown is more reliable for navigation)
+    document.addEventListener('click', (e) => {
+        // Only capture if mousedown didn't already capture this
+        const now = Date.now();
+        if (now - lastMousedownTime > 100) {
+            capture('click', e.target);
+        }
+    }, { capture: true, passive: true });
+    
     document.addEventListener('input', (e) => capture('input', e.target), { capture: true, passive: true });
     document.addEventListener('change', (e) => capture('change', e.target), { capture: true, passive: true });
     
     // Capture submit events (for forms)
     document.addEventListener('submit', (e) => {
-        capture('click', e.target.querySelector('[type="submit"], button[type="submit"], button:not([type])')  || e.target);
+        capture('submit', e.target.querySelector('[type="submit"], button[type="submit"], button:not([type])')  || e.target);
     }, { capture: true, passive: true });
     
-    // Backup: capture mousedown before navigation
-    document.addEventListener('mousedown', (e) => {
-        const target = e.target;
-        // If it's a submit button or link, capture immediately
-        if (target.type === 'submit' || target.tagName === 'BUTTON' || (target.tagName === 'A' && target.href)) {
-            capture('click', target);
+    // Restore pending actions from localStorage (after navigation)
+    try {
+        const pending = JSON.parse(localStorage.getItem('__minRecPending') || '[]');
+        if (pending.length > 0) {
+            actions.push(...pending);
+            localStorage.removeItem('__minRecPending');
         }
-    }, { capture: true, passive: true });
+    } catch (e) {}
+    
+    // CRITICAL: Flush actions to localStorage before page unload/navigation
+    window.addEventListener('beforeunload', () => {
+        try {
+            if (actions.length > 0) {
+                const pending = JSON.parse(localStorage.getItem('__minRecPending') || '[]');
+                pending.push(...actions);
+                localStorage.setItem('__minRecPending', JSON.stringify(pending));
+                actions.length = 0;
+            }
+        } catch (e) {}
+    }, { capture: true });
+    
+    // Also flush on visibilitychange (for tab switches/closes)
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            try {
+                if (actions.length > 0) {
+                    const pending = JSON.parse(localStorage.getItem('__minRecPending') || '[]');
+                    pending.push(...actions);
+                    localStorage.setItem('__minRecPending', JSON.stringify(pending));
+                }
+            } catch (e) {}
+        }
+    }, { capture: true });
+    
+    // Expose flush function
+    window.__flushActions = () => {
+        const result = actions.slice();
+        actions.length = 0;
+        return result;
+    };
 })();
 """
 
@@ -253,8 +343,13 @@ def main():
         return active_pages[page_key]['pageId']
     
     def poll_page_actions(page: Page):
-        """Poll actions from a page"""
+        """Poll actions from a page - with retry for robustness"""
         try:
+            # Check if page is still valid
+            if page.is_closed():
+                return 0
+            
+            # Try to get recorded actions - with immediate flush
             actions = page.evaluate('() => window.__getRecordedActions ? window.__getRecordedActions() : []')
             if actions:
                 page_id = get_page_id(page)
@@ -262,8 +357,10 @@ def main():
                     action['pageId'] = page_id
                     with queue_lock:
                         action_queue.append(action)
+                return len(actions)
         except Exception:
             pass
+        return 0
     
     def setup_page(page: Page):
         """Setup recorder on a page - inject AFTER load"""
@@ -323,6 +420,9 @@ def main():
                     try:
                         page.evaluate(MINIMAL_INJECT)
                         print(f"[TAB READY] {page_id}")
+                        
+                        # Poll immediately to get any pending actions from localStorage
+                        poll_page_actions(page)
                         break
                     except Exception as inject_error:
                         if attempt < max_retries - 1:
@@ -335,6 +435,7 @@ def main():
                 try:
                     page.evaluate(MINIMAL_INJECT)
                     print(f"[TAB READY] {page_id} (fallback)")
+                    poll_page_actions(page)
                 except:
                     print(f"[TAB FAILED] {page_id}: Could not inject recorder script")
         
@@ -375,21 +476,31 @@ def main():
     
     # Main loop - 50ms polling for responsive capture
     start = time.time()
+    last_action_time = time.time()
+    last_poll_time = 0
     
     try:
         while not stop_event.is_set():
-            # Poll all active pages for actions
-            for page_key in list(active_pages.keys()):
-                try:
-                    # Find the page object
-                    for p in context.pages:
-                        if id(p) == page_key:
-                            poll_page_actions(p)
-                            break
-                except Exception:
-                    pass
+            current_time = time.time()
             
-            # Drain action queue
+            # Poll more frequently (50ms) to catch actions before navigation
+            if (current_time - last_poll_time) >= 0.05:
+                last_poll_time = current_time
+                
+                # Poll all active pages for actions
+                for page_key in list(active_pages.keys()):
+                    try:
+                        # Find the page object
+                        for p in context.pages:
+                            if id(p) == page_key and not p.is_closed():
+                                actions_count = poll_page_actions(p)
+                                if actions_count:
+                                    last_action_time = current_time
+                                break
+                    except Exception:
+                        pass
+            
+            # Drain action queue immediately
             while True:
                 with queue_lock:
                     if not action_queue:
@@ -403,8 +514,10 @@ def main():
                 url = payload.get('pageUrl', '')
                 page_id = payload.get('pageId', '')
                 print(f"[{action.upper()}] [{page_id}] {url}")
+                
+                last_action_time = current_time
             
-            time.sleep(0.1)  # 100ms polling interval - balanced for performance
+            time.sleep(0.05)  # 50ms polling interval - responsive for navigation capture
             
             if args.timeout and (time.time() - start) >= args.timeout:
                 print(f"\n[Minimal Recorder] Timeout reached ({args.timeout}s)")
@@ -415,8 +528,45 @@ def main():
         print("\n[Minimal Recorder] Stopping...")
         stop_event.set()
     
-    # Final drain - increased to ensure all actions captured
-    time.sleep(0.5)
+    # Final drain - CRITICAL: poll all pages one more time before closing
+    print("[Minimal Recorder] Final action collection...")
+    time.sleep(0.3)  # Give time for any pending actions
+    
+    # Poll all pages one final time
+    for page_key in list(active_pages.keys()):
+        try:
+            for p in list(context.pages):
+                if id(p) == page_key and not p.is_closed():
+                    # Force flush from localStorage
+                    try:
+                        p.evaluate('''() => {
+                            try {
+                                const pending = JSON.parse(localStorage.getItem('__minRecPending') || '[]');
+                                if (pending.length > 0) {
+                                    if (!window.__minRecFinalActions) window.__minRecFinalActions = [];
+                                    window.__minRecFinalActions.push(...pending);
+                                    localStorage.removeItem('__minRecPending');
+                                }
+                            } catch (e) {}
+                        }''')
+                        # Get final actions
+                        final_actions = p.evaluate('() => window.__minRecFinalActions || []')
+                        if final_actions:
+                            page_id = active_pages[page_key]['pageId']
+                            for action in final_actions:
+                                action['pageId'] = page_id
+                                with queue_lock:
+                                    action_queue.append(action)
+                    except Exception:
+                        pass
+                    
+                    poll_page_actions(p)
+                    break
+        except Exception:
+            pass
+    
+    # Drain queue completely
+    time.sleep(0.2)
     while action_queue:
         with queue_lock:
             if not action_queue:

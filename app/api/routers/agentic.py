@@ -279,6 +279,9 @@ class TrialRunRequest(BaseModel):
     referenceId: str | None = Field(None, description="ReferenceID value to write into testmanager.xlsx (optional)")
     referenceIds: list[str] | None = Field(None, description="Optional list of ReferenceIDs to run sequentially (max 3) for generated streaming runs. If provided, takes precedence over referenceId.")
     idName: str | None = Field(None, description="IDName (column name) to write into testmanager.xlsx (optional)")
+    selfHealing: bool = Field(True, description="Enable automatic error detection and self-healing (up to 5 retries, default: True)")
+    sessionName: str | None = Field(None, description="Optional recorder session name to load metadata for locator self-healing")
+    idName: str | None = Field(None, description="IDName (column name) to write into testmanager.xlsx (optional)")
 
 
 class TrialRunResponse(BaseModel):
@@ -292,6 +295,7 @@ async def trial_run(req: TrialRunRequest) -> TrialRunResponse:
     """Execute a temporary Playwright test file. If frameworkRoot provided, place spec inside its tests dir to honor config."""
     try:
         from ...executor import run_trial, run_trial_in_framework
+        from ...self_healing_trial_executor import execute_trial_with_self_healing
         from ..framework_resolver import resolve_framework_root
         from pathlib import Path as _P
     except Exception as exc:  # pragma: no cover
@@ -384,7 +388,54 @@ async def trial_run(req: TrialRunRequest) -> TrialRunResponse:
                     shutil.rmtree(results_dir, ignore_errors=True)
             except Exception:
                 pass
-            success, logs = run_trial_in_framework(content, root, headed=req.headed, env_overrides=env_overrides)
+            
+            # Use self-healing executor if enabled (default)
+            if req.selfHealing:
+                # Load recorder metadata if session name provided
+                recorder_metadata = None
+                if req.sessionName:
+                    try:
+                        import json
+                        # Look for refined JSON in app/generated_flows
+                        flows_dir = Path("app") / "generated_flows"
+                        # Try common naming patterns
+                        possible_files = [
+                            flows_dir / f"{req.sessionName}.refined.json",
+                            flows_dir / f"{req.sessionName}-{req.sessionName}.refined.json",
+                            flows_dir / f"{req.sessionName}.json",
+                        ]
+                        
+                        for metadata_file in possible_files:
+                            if metadata_file.exists():
+                                with open(metadata_file, 'r', encoding='utf-8') as f:
+                                    recorder_metadata = json.load(f)
+                                    # Normalize: if it has 'steps', copy to 'actions' for compatibility
+                                    if 'steps' in recorder_metadata and 'actions' not in recorder_metadata:
+                                        recorder_metadata['actions'] = recorder_metadata['steps']
+                                    logger.info(f"[Self-Healing] Loaded recorder metadata from: {metadata_file.name}")
+                                    break
+                        
+                        if not recorder_metadata:
+                            logger.warning(f"[Self-Healing] Could not find metadata for session: {req.sessionName}")
+                    except Exception as e:
+                        logger.warning(f"[Self-Healing] Failed to load recorder metadata: {e}")
+                
+                result = execute_trial_with_self_healing(
+                    content, root, headed=req.headed, env_overrides=env_overrides, recorder_metadata=recorder_metadata
+                )
+                success = result["success"]
+                logs = result["logs"]
+                # Add self-healing info to logs
+                if result.get("attempts", 1) > 1:
+                    healing_info = f"[self-healing] Fixed after {result['attempts']} attempts\n"
+                    if result.get("fixes_applied"):
+                        healing_info += "[self-healing] Fixes applied:\n"
+                        for fix in result["fixes_applied"]:
+                            healing_info += f"  - Attempt {fix['attempt']}: {fix['fix_description']} (Error: {fix['error_type']})\n"
+                    logs = healing_info + logs
+            else:
+                success, logs = run_trial_in_framework(content, root, headed=req.headed, env_overrides=env_overrides)
+            
             logger.info(banner.strip())
             logs = banner + logs
             if replaced:
@@ -427,6 +478,8 @@ class TrialRunExistingRequest(BaseModel):
     referenceId: str | None = Field(None, description="ReferenceID value to write into testmanager.xlsx (optional). Supports comma-separated for parallel runs.")
     referenceIds: list[str] | None = Field(None, description="Optional list of ReferenceIDs to run in parallel (max 3). If provided, takes precedence over referenceId.")
     idName: str | None = Field(None, description="IDName (column name) to write into testmanager.xlsx (optional)")
+    selfHealing: bool = Field(True, description="Enable automatic error detection and self-healing (up to 5 retries, default: True)")
+    sessionName: str | None = Field(None, description="Optional recorder session name to load metadata for locator self-healing")
 
 
 @router.post("/trial-run-existing", response_model=TrialRunResponse)
@@ -618,7 +671,59 @@ async def trial_run_existing(req: TrialRunExistingRequest) -> TrialRunResponse:
                     "ID_NAME": effective_id_name,
                     "DATA_ID_NAME": effective_id_name,
                 })
-        success, logs = run_trial_in_framework(content, root, headed=req.headed, env_overrides=env)
+        
+        # Log self-healing configuration
+        logger.info(f"[TrialRunExisting] Self-healing enabled: {req.selfHealing}")
+        logger.info(f"[TrialRunExisting] Session name: {req.sessionName}")
+        
+        # Use self-healing if enabled
+        if req.selfHealing:
+            logger.info("[TrialRunExisting] ===== USING SELF-HEALING EXECUTOR =====")
+            # Load recorder metadata if session name provided
+            recorder_metadata = None
+            if req.sessionName:
+                try:
+                    import json
+                    flows_dir = Path("app") / "generated_flows"
+                    possible_files = [
+                        flows_dir / f"{req.sessionName}.refined.json",
+                        flows_dir / f"{req.sessionName}-{req.sessionName}.refined.json",
+                        flows_dir / f"{req.sessionName}.json",
+                    ]
+                    for metadata_file in possible_files:
+                        if metadata_file.exists():
+                            with open(metadata_file, 'r', encoding='utf-8') as f:
+                                recorder_metadata = json.load(f)
+                                if 'steps' in recorder_metadata and 'actions' not in recorder_metadata:
+                                    recorder_metadata['actions'] = recorder_metadata['steps']
+                                logger.info(f"[Self-Healing] Loaded recorder metadata from: {metadata_file.name}")
+                                break
+                    if not recorder_metadata:
+                        logger.warning(f"[Self-Healing] Could not find metadata for session: {req.sessionName}")
+                except Exception as e:
+                    logger.warning(f"[Self-Healing] Failed to load recorder metadata: {e}")
+            
+            try:
+                from ...self_healing_trial_executor import execute_trial_with_self_healing
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"Import failure: {exc}")
+            
+            result = execute_trial_with_self_healing(
+                content, root, headed=req.headed, env_overrides=env, recorder_metadata=recorder_metadata
+            )
+            success = result["success"]
+            logs = result["logs"]
+            # Add self-healing info to logs
+            if result.get("attempts", 1) > 1:
+                healing_info = f"[self-healing] Fixed after {result['attempts']} attempts\n"
+                if result.get("fixes_applied"):
+                    healing_info += "[self-healing] Fixes applied:\n"
+                    for fix in result["fixes_applied"]:
+                        healing_info += f"  - Attempt {fix['attempt']}: {fix['fix_description']} (Error: {fix['error_type']})\n"
+                logs = healing_info + logs
+        else:
+            success, logs = run_trial_in_framework(content, root, headed=req.headed, env_overrides=env)
+        
         logs = (f"[trial-note] Unskipped tests for this run.\n" if replaced else "") + banner + logs
         return TrialRunResponse(success=bool(success), logs=logs, updateInfo=upd_info)
 
@@ -970,6 +1075,8 @@ async def trial_run_stream(req: TrialRunRequest) -> StreamingResponse:
     Phases: start -> running -> chunk (repeated) -> done OR error
     Each chunk frame contains {"phase": "chunk", "data": "..."}
     Final frame includes {"phase": "done", "success": bool}
+    
+    If selfHealing=True and execution fails, will retry with self-healing (non-streaming).
     """
     try:
         import asyncio
@@ -977,11 +1084,99 @@ async def trial_run_stream(req: TrialRunRequest) -> StreamingResponse:
         from pathlib import Path as _P
         from ...executor import _resolve_playwright_command, _detect_test_dir
         from ..framework_resolver import resolve_framework_root as _resolve_root
+        from ...self_healing_trial_executor import execute_trial_with_self_healing
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"Import failure: {exc}") from exc
 
     async def gen() -> AsyncGenerator[bytes, None]:
         try:
+            print(f"[DEBUG] TrialRunStream: selfHealing={req.selfHealing}")
+            logger.info(f"[TrialRunStream] selfHealing={req.selfHealing}")
+            # If self-healing is enabled, use non-streaming self-healing executor instead
+            if req.selfHealing:
+                print("[DEBUG] Self-healing path activated")
+                logger.info("[TrialRunStream] Self-healing enabled, using non-streaming execution")
+                yield _format_sse({"phase": "start", "mode": "self-healing"})
+                yield _format_sse({"phase": "info", "message": "Self-healing mode: Will retry up to 5 times with automatic fixes"})
+                
+                # Determine framework root
+                if req.frameworkRoot:
+                    root = _resolve_root(req.frameworkRoot)
+                else:
+                    from pathlib import Path as _PathLib
+                    root = _PathLib(__file__).resolve().parents[3]
+                
+                # Prepare environment
+                trial_env = os.environ.copy()
+                env_overrides = trial_env_overrides(root, case_id=(req.scenario or None))
+                if env_overrides:
+                    trial_env.update(env_overrides)
+                
+                # Unskip tests
+                content, replaced = _unskip_tests_for_trial(req.testFileContent)
+                
+                # Load recorder metadata if session name provided
+                recorder_metadata = None
+                if req.sessionName:
+                    try:
+                        import json
+                        from pathlib import Path as _PathLib
+                        # Look for refined JSON in app/generated_flows
+                        flows_dir = _PathLib("app") / "generated_flows"
+                        # Try common naming patterns
+                        possible_files = [
+                            flows_dir / f"{req.sessionName}.refined.json",
+                            flows_dir / f"{req.sessionName}-{req.sessionName}.refined.json",
+                            flows_dir / f"{req.sessionName}.json",
+                        ]
+                        
+                        for metadata_file in possible_files:
+                            if metadata_file.exists():
+                                with open(metadata_file, 'r', encoding='utf-8') as f:
+                                    recorder_metadata = json.load(f)
+                                    # Normalize: if it has 'steps', copy to 'actions' for compatibility
+                                    if 'steps' in recorder_metadata and 'actions' not in recorder_metadata:
+                                        recorder_metadata['actions'] = recorder_metadata['steps']
+                                    logger.info(f"[Self-Healing Stream] Loaded recorder metadata from: {metadata_file.name}")
+                                    yield _format_sse({"phase": "info", "message": f"Loaded recorder metadata from: {metadata_file.name}"})
+                                    break
+                        
+                        if not recorder_metadata:
+                            logger.warning(f"[Self-Healing Stream] Could not find metadata for session: {req.sessionName}")
+                    except Exception as e:
+                        logger.warning(f"[Self-Healing Stream] Failed to load recorder metadata: {e}")
+                
+                # Run with self-healing
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    execute_trial_with_self_healing,
+                    content,
+                    root,
+                    req.headed,
+                    trial_env,
+                    recorder_metadata
+                )
+                
+                # Stream result
+                yield _format_sse({"phase": "running", "attempts": result.get("attempts", 1)})
+                
+                # Stream logs line by line
+                for line in result["logs"].split("\n"):
+                    yield _format_sse({"phase": "chunk", "data": line})
+                
+                # Stream fix information
+                if result.get("fixes_applied"):
+                    yield _format_sse({"phase": "fixes", "fixes": result["fixes_applied"]})
+                
+                yield _format_sse({
+                    "phase": "done",
+                    "success": result["success"],
+                    "attempts": result.get("attempts", 1),
+                    "mode": "self-healing"
+                })
+                return
+            
+            # Original streaming logic for non-self-healing mode
             logger.info(f"[TrialRunStream] Starting trial run stream - headed={req.headed}, frameworkRoot={req.frameworkRoot}")
             yield _format_sse({"phase": "start"})
             tmp_path = None

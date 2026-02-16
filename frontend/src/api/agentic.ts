@@ -94,7 +94,7 @@ export async function pushChanges(
 export async function trialRunAgentic(testFileContent: string, headed = false, frameworkRoot?: string) {
   const { data } = await apiClient.post<{ success: boolean; logs: string }>(
     "/agentic/trial-run",
-    { testFileContent, headed, frameworkRoot },
+    { testFileContent, headed, frameworkRoot, selfHealing: true },
   );
   return data;
 }
@@ -103,21 +103,27 @@ export async function trialRunExisting(
   testFilePath: string,
   headed = true,
   frameworkRoot?: string,
-  options?: { scenario?: string; datasheet?: string; referenceId?: string; referenceIds?: string[]; idName?: string; update?: boolean },
+  options?: { scenario?: string; datasheet?: string; referenceId?: string; referenceIds?: string[]; idName?: string; update?: boolean; sessionName?: string },
 ) {
+  const requestBody = {
+    testFilePath,
+    headed,
+    frameworkRoot,
+    scenario: options?.scenario,
+    updateTestManager: options?.update ?? false,
+    datasheet: options?.datasheet,
+    referenceId: options?.referenceId,
+    referenceIds: options?.referenceIds,
+    idName: options?.idName,
+    selfHealing: true,
+    sessionName: options?.sessionName || options?.scenario,
+  };
+  
+  console.log('[trialRunExisting] Request:', requestBody);
+  
   const { data } = await apiClient.post<{ success: boolean; logs: string; updateInfo?: any }>(
     "/agentic/trial-run-existing",
-    {
-      testFilePath,
-      headed,
-      frameworkRoot,
-      scenario: options?.scenario,
-      updateTestManager: options?.update ?? false,
-      datasheet: options?.datasheet,
-      referenceId: options?.referenceId,
-      referenceIds: options?.referenceIds,
-      idName: options?.idName,
-    },
+    requestBody,
   );
   return data;
 }
@@ -150,6 +156,7 @@ export async function trialRunAgenticStream(
       testFileContent,
       headed,
       frameworkRoot,
+      selfHealing: true,
       scenario: options?.scenario,
       updateTestManager: options?.update ?? false,
       datasheet: options?.datasheet,

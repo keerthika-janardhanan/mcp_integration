@@ -235,6 +235,50 @@ def resolve_framework_root(explicit: Optional[str] = None) -> Path:
                     logger.info(f"[FrameworkResolver] Cloned repository contains: {', '.join(contents[:10])}")
                     logger.info(f"[FrameworkResolver] Successfully cloned repository to {target_dir}")
                     
+                    # Install dependencies if package.json exists
+                    package_json = target_dir / "package.json"
+                    if package_json.exists():
+                        logger.info(f"[FrameworkResolver] Installing dependencies with npm ci...")
+                        try:
+                            # Ensure Node.js is in PATH
+                            nodejs_path = r"C:\Program Files\nodejs"
+                            env = os.environ.copy()
+                            if nodejs_path not in env.get("PATH", ""):
+                                env["PATH"] = nodejs_path + os.pathsep + env.get("PATH", "")
+                            
+                            result = subprocess.run(
+                                ["npm", "ci"],
+                                cwd=str(target_dir),
+                                capture_output=True,
+                                text=True,
+                                env=env,
+                                timeout=300  # 5 minute timeout
+                            )
+                            if result.returncode == 0:
+                                logger.info(f"[FrameworkResolver] ✓ Dependencies installed successfully")
+                            else:
+                                logger.warning(f"[FrameworkResolver] npm ci failed: {result.stderr}")
+                                # Try npm install as fallback
+                                logger.info(f"[FrameworkResolver] Trying npm install as fallback...")
+                                result = subprocess.run(
+                                    ["npm", "install"],
+                                    cwd=str(target_dir),
+                                    capture_output=True,
+                                    text=True,
+                                    env=env,
+                                    timeout=300
+                                )
+                                if result.returncode == 0:
+                                    logger.info(f"[FrameworkResolver] ✓ Dependencies installed via npm install")
+                                else:
+                                    logger.error(f"[FrameworkResolver] npm install also failed: {result.stderr}")
+                        except subprocess.TimeoutExpired:
+                            logger.error(f"[FrameworkResolver] npm ci timed out after 5 minutes")
+                        except FileNotFoundError:
+                            logger.error(f"[FrameworkResolver] npm not found in PATH. Ensure Node.js is installed.")
+                        except Exception as e:
+                            logger.error(f"[FrameworkResolver] Dependency installation failed: {e}")
+                    
                 except (subprocess.CalledProcessError, FileNotFoundError) as exc:
                     raise FileNotFoundError(f"Git clone failed for '{clone_url}': {exc}") from exc
             else:
@@ -270,6 +314,44 @@ def resolve_framework_root(explicit: Optional[str] = None) -> Path:
                         _PULLED_REPOS.add(repo_key)
                 else:
                     print(f"[FrameworkResolver] Using local repository (already synced this session)")
+                
+                # Always check and install dependencies if node_modules is missing
+                node_modules = target_dir / "node_modules"
+                package_json = target_dir / "package.json"
+                if package_json.exists() and not node_modules.exists():
+                    logger.info(f"[FrameworkResolver] node_modules missing, installing dependencies...")
+                    try:
+                        # Ensure Node.js is in PATH
+                        nodejs_path = r"C:\Program Files\nodejs"
+                        env = os.environ.copy()
+                        if nodejs_path not in env.get("PATH", ""):
+                            env["PATH"] = nodejs_path + os.pathsep + env.get("PATH", "")
+                        
+                        result = subprocess.run(
+                            ["npm", "ci"],
+                            cwd=str(target_dir),
+                            capture_output=True,
+                            text=True,
+                            env=env,
+                            timeout=300
+                        )
+                        if result.returncode == 0:
+                            logger.info(f"[FrameworkResolver] ✓ Dependencies installed successfully")
+                        else:
+                            logger.warning(f"[FrameworkResolver] npm ci failed, trying npm install...")
+                            result = subprocess.run(
+                                ["npm", "install"],
+                                cwd=str(target_dir),
+                                capture_output=True,
+                                text=True,
+                                env=env,
+                                timeout=300
+                            )
+                            if result.returncode == 0:
+                                logger.info(f"[FrameworkResolver] ✓ Dependencies installed via npm install")
+                    except Exception as e:
+                        logger.error(f"[FrameworkResolver] Failed to install dependencies: {e}")
+            
             if branch_in_url:
                 try:
                     subprocess.run(["git", "-C", str(target_dir), "checkout", branch_in_url], check=True)
