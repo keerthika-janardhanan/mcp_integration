@@ -30,8 +30,32 @@ export function TestMetricsDashboard({ onBack }: TestMetricsDashboardProps) {
       // Call backend API to get metrics
       const data = await getTestMetrics();
       setMetrics(data);
+      
+      // If no reports found, show a different message than error
+      if (data.totalReports === 0) {
+        console.log('No test reports found, but this is not an error - showing empty state');
+      }
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load metrics');
+      // Only set error for actual failures, not empty states
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to load metrics';
+      if (!errorMessage.includes('No test reports')) {
+        setError(errorMessage);
+      } else {
+        // Handle empty state gracefully
+        setMetrics({
+          totalTests: 0,
+          passed: 0,
+          failed: 0,
+          skipped: 0,
+          flaky: 0,
+          passRate: 0.0,
+          duration: 0,
+          avgDuration: 0.0,
+          tests: [],
+          totalReports: 0,
+          startTime: new Date().toISOString()
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -55,16 +79,6 @@ export function TestMetricsDashboard({ onBack }: TestMetricsDashboardProps) {
       case 'skipped': return 'text-yellow-400';
       case 'flaky': return 'text-orange-400';
       default: return 'text-gray-400';
-    }
-  };
-
-  const getStatusBgColor = (status: string) => {
-    switch (status) {
-      case 'passed': return 'bg-green-500/20 border-green-500/50';
-      case 'failed': return 'bg-red-500/20 border-red-500/50';
-      case 'skipped': return 'bg-yellow-500/20 border-yellow-500/50';
-      case 'flaky': return 'bg-orange-500/20 border-orange-500/50';
-      default: return 'bg-gray-500/20 border-gray-500/50';
     }
   };
 
@@ -170,7 +184,27 @@ export function TestMetricsDashboard({ onBack }: TestMetricsDashboardProps) {
           </motion.div>
         )}
 
-        {!loading && !error && metrics && (
+        {!loading && !error && metrics && metrics.totalReports === 0 && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-8 mb-8 text-center max-w-2xl mx-auto"
+          >
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <FileText className="w-12 h-12 text-blue-400" />
+            </div>
+            <h3 className="font-semibold text-blue-400 text-xl mb-2">No Test Reports Available</h3>
+            <p className="text-blue-300 mb-4">
+              Run some Playwright tests to see metrics and insights here. 
+              Test reports will automatically appear once your tests complete.
+            </p>
+            <div className="text-sm text-blue-400/70">
+              Expected location: <code className="bg-blue-500/20 px-2 py-1 rounded">framework_repos/*/report/run-*/</code>
+            </div>
+          </motion.div>
+        )}
+
+        {!loading && !error && metrics && metrics.totalReports > 0 && (
           <>
             {/* Summary Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-6 mb-12 max-w-7xl mx-auto">
@@ -369,7 +403,9 @@ export function TestMetricsDashboard({ onBack }: TestMetricsDashboardProps) {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    openInteractiveReport(test.reportId, test.runId);
+                                    if (test.reportId && test.runId) {
+                                      openInteractiveReport(test.reportId, test.runId);
+                                    }
                                   }}
                                   className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-blue-400 bg-blue-500/20 border border-blue-500/50 rounded-lg hover:bg-blue-500/30 hover:border-blue-400 transition-colors"
                                 >
@@ -420,9 +456,9 @@ export function TestMetricsDashboard({ onBack }: TestMetricsDashboardProps) {
               <InsightCard
                 icon={<Layers className="w-6 h-6" />}
                 title="Total Reports"
-                value={metrics.totalReports || 1}
+                value={String(metrics.totalReports || 1)}
                 trend="up"
-                color="purple"
+                color="blue"
               />
             </motion.div>
           </>

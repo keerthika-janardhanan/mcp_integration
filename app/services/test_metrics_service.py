@@ -21,6 +21,10 @@ class TestMetricsService:
         self.framework_repos_path = Path(framework_repos_path).absolute()
         print(f"[TestMetricsService] Initialized with path: {self.framework_repos_path}")
         print(f"[TestMetricsService] Path exists: {self.framework_repos_path.exists()}")
+        
+        # Create framework_repos directory if it doesn't exist
+        self.framework_repos_path.mkdir(exist_ok=True)
+        print(f"[TestMetricsService] Ensured framework_repos directory exists")
 
     def get_all_reports(self, repo_id: Optional[str] = None) -> List[Path]:
         """
@@ -291,7 +295,24 @@ class TestMetricsService:
         print(f"[TestMetricsService] Found {len(all_report_dirs)} report directories")
         
         if not all_report_dirs:
-            raise FileNotFoundError("No test reports found")
+            # Return empty metrics instead of raising an error
+            print("[TestMetricsService] No reports found, returning empty metrics")
+            return {
+                "totalTests": 0,
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "flaky": 0,
+                "passRate": 0.0,
+                "duration": 0,
+                "totalDuration": 0,  # Add missing key
+                "avgDuration": 0.0,
+                "tests": [],
+                "reports": [],  # Add missing key
+                "totalReports": 0,
+                "startTime": datetime.now().isoformat(),
+                "message": "No test reports available yet"  # Add missing key
+            }
         
         all_reports_data = []
         

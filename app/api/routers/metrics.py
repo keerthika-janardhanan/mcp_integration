@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -44,8 +45,21 @@ async def get_test_metrics(
         print(f"[API] Total tests across all reports: {metrics.get('totalTests', 0)}")
         return metrics
     except FileNotFoundError as e:
-        print(f"[API] FileNotFoundError: {e}")
-        raise HTTPException(status_code=404, detail=str(e))
+        # Instead of raising HTTP error, return empty metrics with message
+        print(f"[API] FileNotFoundError: {e} - Returning empty metrics")
+        return {
+            "totalTests": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "flaky": 0,
+            "passRate": 0.0,
+            "duration": 0,
+            "avgDuration": 0.0,
+            "tests": [],
+            "totalReports": 0,
+            "startTime": datetime.now().isoformat()
+        }
     except Exception as e:
         print(f"[API] Exception: {e}")
         import traceback
