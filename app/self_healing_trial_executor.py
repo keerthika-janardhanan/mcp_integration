@@ -21,7 +21,7 @@ class SelfHealingTrialExecutor:
     ERROR_PATTERNS = {
         "import_error": r"(Cannot find module|Module not found|is not a constructor|Cannot use import statement)",
         "export_error": r"(is not a constructor|has no exported member|does not provide an export)",
-        "locator_error": r"(locator.*not found|element.*not found|selector.*not found|Timeout.*exceeded)",
+        "locator_error": r"(locator.*not found|element.*not found|selector.*not found|Timeout.*exceeded|locator\.waitFor.*Timeout|waiting for locator)",
         "strict_mode_violation": r"(strict mode violation.*resolved to \d+ elements)",
         "data_file_error": r"(Data file not found|ENOENT.*\.xlsx)",
         "type_error": r"(TypeError:|Type '.*' is not assignable to type)",

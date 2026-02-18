@@ -165,34 +165,81 @@ export const AutomationScriptFlow: React.FC<AutomationScriptFlowProps> = ({
   // Trial run
   const handleTrialRun = async () => {
     setIsLoading(true);
+    console.log('[TrialRun] Starting trial run...');
+    console.log('[TrialRun] Session name from prop:', sessionName);
 
     try {
-      // Use the correct agentic endpoint with headed=true to launch visible browser
-      const response = await fetch('http://localhost:8000/api/agentic/trial-run', {
+      const token = localStorage.getItem('token') || '';
+      const content = preview || refinedFlow || existingCode || '';
+      
+      // Use sessionName prop, or extract from content as fallback
+      let finalSessionName = sessionName;
+      if (!finalSessionName) {
+        console.warn('[TrialRun] No sessionName prop, attempting to extract from content');
+        const patterns = [
+          /describe\(['"]([^'"]*(?:test|tc)\d+[^'"]*)['"]/, 
+          /(test\d+)/i,
+          /(tc\d+)/i,
+        ];
+        for (const pattern of patterns) {
+          const match = content.match(pattern);
+          if (match) {
+            const captured = match[1] || match[0];
+            const idMatch = captured.match(/(?:test|tc)\d+/i);
+            if (idMatch) {
+              finalSessionName = idMatch[0].toLowerCase();
+              console.log('[TrialRun] Extracted session name from content:', finalSessionName);
+              break;
+            }
+          }
+        }
+      }
+      
+      const payload = {
+        testFileContent: content,
+        headed: true,
+        selfHealing: true,
+        sessionName: finalSessionName || null,
+      };
+      console.log('[TrialRun] Final payload sessionName:', payload.sessionName);
+      
+      const response = await fetch('http://localhost:8001/api/agentic/trial-run/stream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          testFileContent: preview || refinedFlow || existingCode || '',
-          headed: true, // Launch Chromium visibly
-          frameworkRoot: undefined, // Optional: could be configured
-        }),
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : '',
+        },
+        body: JSON.stringify(payload),
       });
 
+      console.log('[TrialRun] Called endpoint: /api/agentic/trial-run/stream');
+      console.log('[TrialRun] Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[TrialRun] HTTP error:', response.status, errorText);
+        alert(`Trial run failed: ${response.status} ${errorText.substring(0, 200)}`);
+        setIsLoading(false);
+        return;
+      }
+
       const result = await response.json();
+      console.log('[TrialRun] Result:', { success: result.success, logsLength: result.logs?.length });
       
       if (result.success) {
+        alert('Trial run passed! ✓');
         setTimeout(() => {
           setCurrentStep('push-to-git');
           setIsLoading(false);
         }, 1000);
       } else {
-        console.error('Trial run failed:', result.logs);
-        alert(`Trial run failed. Check console for details.\n\n${result.logs.substring(0, 500)}`);
+        console.error('[TrialRun] Test failed:', result.logs);
+        alert(`Trial run failed. Check console for details.\n\n${result.logs?.substring(0, 500) || 'No logs'}`);
         setIsLoading(false);
       }
     } catch (error) {
-      console.error('Trial run failed:', error);
-      alert('Trial run failed. Check console for details.');
+      console.error('[TrialRun] Exception:', error);
+      alert(`Trial run error: ${error}`);
       setIsLoading(false);
     }
   };

@@ -280,16 +280,55 @@ def _add_login_page_wait(source: str) -> Tuple[str, bool]:
 
 
 def _fix_data_path_handling(source: str) -> Tuple[str, bool]:
-    """Fix data file path handling to remove 'data/' prefix from datasheet names."""
-    
-    # Direct string replacement approach - replace all occurrences of 'data/FNOL_claim.xlsx' with 'FNOL_claim.xlsx'
-    if "data/FNOL_claim.xlsx" in source:
-        updated = source.replace("data/FNOL_claim.xlsx", "FNOL_claim.xlsx")
-        logger.info("[TrialAdapter] Fixed data path: replaced 'data/FNOL_claim.xlsx' with 'FNOL_claim.xlsx'")
-        print("[TrialAdapter] Fixed data path: replaced 'data/FNOL_claim.xlsx' with 'FNOL_claim.xlsx'")
-        return updated, True
-    
+    """Data path handling is now correct in generated code - no fixes needed."""
+    # The generated code correctly uses path.join(__dirname, '../data') to construct data directory paths
+    # Datasheet names should not include 'data/' prefix
     return source, False
+
+
+def _fix_readexcel_call_params(source: str) -> Tuple[str, bool]:
+    """Fix wrong readExcelData parameter order and wrong testmanager column lookups.
+
+    Generated scripts sometimes use:
+      - testRow?.['DataIDColumn'] instead of testRow?.['IDName']
+      - testRow?.['DataSheetTab'] instead of testRow?.['SheetTab']
+      - readExcelData(filePath, idColumn, refId, sheetTab)  <-- WRONG ORDER
+    Correct form: readExcelData(filePath, sheetTab, refId, idColumn)
+    """
+    changed = False
+    updated = source
+
+    # Fix wrong testmanager column names
+    if "testRow?.['DataIDColumn']" in updated:
+        updated = updated.replace("testRow?.['DataIDColumn']", "testRow?.['IDName']")
+        changed = True
+        logger.info("[TrialAdapter] Fixed DataIDColumn → IDName in testmanager lookup")
+        print("[TrialAdapter] Fixed DataIDColumn → IDName in testmanager lookup")
+
+    if "testRow?.['DataSheetTab']" in updated:
+        updated = updated.replace("testRow?.['DataSheetTab']", "testRow?.['SheetTab']")
+        changed = True
+        logger.info("[TrialAdapter] Fixed DataSheetTab → SheetTab in testmanager lookup")
+        print("[TrialAdapter] Fixed DataSheetTab → SheetTab in testmanager lookup")
+
+    # Fix wrong readExcelData parameter order:
+    # Wrong: readExcelData(dataFilePath, dataIdColumn, <refId>, dataSheetTab)
+    # Right: readExcelData(dataFilePath, dataSheetTab, <refId>, dataIdColumn)
+    pattern = re.compile(
+        r'readExcelData\(\s*(\w+)\s*,\s*(dataIdColumn)\s*,\s*(\w+)\s*,\s*(dataSheetTab)\s*\)'
+    )
+    if pattern.search(updated):
+        updated = pattern.sub(
+            r'readExcelData(\1, dataSheetTab, \3, dataIdColumn)', updated
+        )
+        changed = True
+        logger.info("[TrialAdapter] Fixed readExcelData parameter order (idColumn,refId,sheetTab → sheetTab,refId,idColumn)")
+        print("[TrialAdapter] Fixed readExcelData parameter order (idColumn,refId,sheetTab → sheetTab,refId,idColumn)")
+
+    return updated, changed
+
+
+def _inject_parallel_data_resolver(source: str) -> Tuple[str, bool]:
     """Inject parallel data resolver logic into test script."""
     import re
     
@@ -330,14 +369,19 @@ def adapt_spec_content_for_trial(source: str, repo_root: Path) -> Tuple[str, boo
     """Return transformed spec content for trial run; bool indicates change."""
     logger.info("[TrialAdapter] ===== Starting spec adaptation for trial run =====")
     print("\n[TrialAdapter] ===== Starting spec adaptation for trial run =====")
+
+    # Always apply data-loading fixes regardless of credentials
+    source, excel_fixed = _fix_readexcel_call_params(source)
+    changed_any_pre = excel_fixed
+
     credentials = load_trial_credentials(repo_root)
     if not credentials:
-        logger.info("[TrialAdapter] No credentials found, skipping adaptation")
-        print("[TrialAdapter] No credentials found, skipping adaptation")
-        return source, False
+        logger.info("[TrialAdapter] No credentials found, skipping credential adaptation")
+        print("[TrialAdapter] No credentials found, skipping credential adaptation")
+        return source, changed_any_pre
 
     updated = source
-    changed_any = False
+    changed_any = changed_any_pre
     
     # Fix import paths - remove .ts extensions
     import_pattern = r"from\s+['\"]([^'\"]+)\.ts['\"];?"
@@ -510,16 +554,8 @@ def adapt_spec_content_for_trial(source: str, repo_root: Path) -> Tuple[str, boo
 
     updated, data_path_changed = _fix_data_path_handling(updated)
     changed_any |= data_path_changed
-    if "data/" in updated:
-        before_count = updated.count("data/")
-        updated = updated.replace("'data/", "'")
-        updated = updated.replace('"data/', '"')
-        updated = updated.replace("`data/", "`")
-        after_count = updated.count("data/")
-        if before_count != after_count:
-            changed_any = True
-            logger.info(f"[TrialAdapter] Brute force fix: removed {before_count - after_count} 'data/' references")
-            print(f"[TrialAdapter] Brute force fix: removed {before_count - after_count} 'data/' references")
+    # Removed brute force fix that incorrectly strips 'data/' prefixes from datasheet names
+    # The datasheet name should not include 'data/' prefix - the path.join(__dirname, '../data') handles this correctly
 
     summary = (
         f"\n[TrialAdapter] ===== Adaptation complete =====\n"

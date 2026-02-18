@@ -448,7 +448,8 @@ class AgenticScriptAgent:
                 "   - Properties: page, helper, element Locators\n"
                 "   - Constructor: this.helper = new HelperClass(page); this.element = page.locator(locators.element);\n"
                 "   - Methods: coerceValue(v), normaliseDataKey(k), resolveDataValue(row, keys), applyData(row, keys, idx)\n"
-                "   - applyData MUST include env fallback: if (!value) {{ value = process.env.USERNAME || process.env.PASSWORD || ''; }}\n"
+                "   - applyData MUST read all values from formData parameter (populated from Excel files in ../data/ folder)\n"
+                "   - NEVER use process.env for any credentials or test data - all values MUST come from Excel data files\n"
                 "   - Explicit waits: await element.waitFor({{state:'visible',timeout:30000}}); await page.waitForTimeout(500);\n"
                 "   - END FILE: export default PageTitlePage; (MUST be last line)\n\n"
                 "4. TEST FILE:\n"
@@ -461,8 +462,16 @@ class AgenticScriptAgent:
                 "   - Initialize: workdaySignInPage = new WorkdaySignInPage(page);\n"
                 "   - Wrap steps: await namedStep(\"Step 1 - Action\", page, testinfo, async () => {{ ... }});\n"
                 "   - Screenshot: const screenshot = await page.screenshot(); attachScreenshot(\"Step 1\", testinfo, screenshot);\n\n"
-                "5. DATA: const xlsx=require('xlsx'); workBook=xlsx.readFile(path); allData=xlsx.utils.sheet_to_json(workSheet); row=allData.find(r=>r[idCol]===refId). File path: ../data/DatasheetName.\n"
-                "   VALIDATE: if (!dataRow || Object.keys(dataRow).length === 0) throw new Error('No test data found');\n\n"
+                "5. DATA: ALL test data MUST come from Excel files in ../data/ folder (NEVER use process.env for credentials).\n"
+                "   - Construct full path: const dataFilePath = path.join(__dirname, '../data', dataSheetName);\n"
+                "   - Use readExcelData helper: const dataRow = readExcelData(dataFilePath, dataSheetTab, dataReferenceId, dataIdColumn);\n"
+                "   - readExcelData(filePath, sheetName, testcaseId, columnName) - sheetName first, then ID value, then column name LAST\n"
+                "   - Get IDName from testmanager: const dataIdColumn = String(testRow?.['IDName'] ?? '').trim();\n"
+                "   - SheetTab is not in testmanager, default to 'Sheet1': const dataSheetTab = String(testRow?.['SheetTab'] ?? '').trim() || 'Sheet1';\n"
+                "   - Pass dataRow to page.applyData: await pageObject.applyData(dataRow, ['Username', 'Password'], index);\n"
+                "   - For login: await loginPage.applyData(dataRow, ['Username'], 0); then await loginPage.applyData(dataRow, ['Password'], 0);\n"
+                "   - VALIDATE: if (!dataRow || Object.keys(dataRow).length === 0) throw new Error('No test data found');\n"
+                "   - CRITICAL: Never call methods like login(process.env.USERID, process.env.PASSWORD) - use applyData with Excel data\n\n"
                 "Generate complete, valid JSON. No markdown. No placeholders.\n"
             ),
         )
@@ -2219,12 +2228,13 @@ class AgenticScriptAgent:
             page_lines.extend([
                 '',
                 '  async applyData(formData: Record<string, any> | null | undefined, keys?: string[], index: number = 0): Promise<void> {',
+                '    // Data values come from Excel files in ../data/ folder via formData parameter',
                 '    const fallbackValues: Record<string, string> = {',
             ])
             
             for binding in data_bindings:
                 data_key = binding['data_key']
-                page_lines.append(f'      "{data_key}": "",')
+                page_lines.append(f'      "{data_key}": "",  // Provide via Excel data file')
             
             page_lines.extend([
                 '    };',

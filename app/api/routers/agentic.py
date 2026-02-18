@@ -292,6 +292,7 @@ class TrialRunResponse(BaseModel):
 
 @router.post("/trial-run", response_model=TrialRunResponse)
 async def trial_run(req: TrialRunRequest) -> TrialRunResponse:
+    logger.info(f"[TrialRun] Received request: selfHealing={req.selfHealing}, sessionName={req.sessionName}")
     """Execute a temporary Playwright test file. If frameworkRoot provided, place spec inside its tests dir to honor config."""
     try:
         from ...executor import run_trial, run_trial_in_framework
@@ -393,32 +394,43 @@ async def trial_run(req: TrialRunRequest) -> TrialRunResponse:
             if req.selfHealing:
                 # Load recorder metadata if session name provided
                 recorder_metadata = None
+                logger.info(f"[/trial-run] Self-healing enabled, session name: '{req.sessionName}'")
                 if req.sessionName:
                     try:
                         import json
-                        # Look for refined JSON in app/generated_flows
-                        flows_dir = Path("app") / "generated_flows"
-                        # Try common naming patterns
+                        from pathlib import Path as _P
+                        # Use absolute path from project root
+                        project_root = _P(__file__).resolve().parents[3]
+                        flows_dir = project_root / "app" / "generated_flows"
+                        logger.info(f"[/trial-run] Metadata search path: {flows_dir}")
+                        logger.info(f"[/trial-run] Directory exists: {flows_dir.exists()}")
+                        
                         possible_files = [
                             flows_dir / f"{req.sessionName}.refined.json",
                             flows_dir / f"{req.sessionName}-{req.sessionName}.refined.json",
                             flows_dir / f"{req.sessionName}.json",
                         ]
+                        logger.info(f"[/trial-run] Checking files: {[str(f) for f in possible_files]}")
                         
                         for metadata_file in possible_files:
+                            logger.info(f"[/trial-run] Checking: {metadata_file} (exists={metadata_file.exists()})")
                             if metadata_file.exists():
                                 with open(metadata_file, 'r', encoding='utf-8') as f:
                                     recorder_metadata = json.load(f)
                                     # Normalize: if it has 'steps', copy to 'actions' for compatibility
                                     if 'steps' in recorder_metadata and 'actions' not in recorder_metadata:
                                         recorder_metadata['actions'] = recorder_metadata['steps']
-                                    logger.info(f"[Self-Healing] Loaded recorder metadata from: {metadata_file.name}")
+                                    logger.info(f"[/trial-run] ✓ Loaded metadata from: {metadata_file.name} with {len(recorder_metadata.get('actions', []))} actions")
                                     break
                         
                         if not recorder_metadata:
-                            logger.warning(f"[Self-Healing] Could not find metadata for session: {req.sessionName}")
+                            logger.warning(f"[/trial-run] ✗ No metadata found for session: {req.sessionName}")
+                            if flows_dir.exists():
+                                logger.warning(f"[/trial-run] Available files: {list(flows_dir.glob('*.json'))}")
                     except Exception as e:
-                        logger.warning(f"[Self-Healing] Failed to load recorder metadata: {e}")
+                        logger.warning(f"[/trial-run] Exception loading metadata: {e}")
+                        import traceback
+                        logger.warning(traceback.format_exc())
                 
                 result = execute_trial_with_self_healing(
                     content, root, headed=req.headed, env_overrides=env_overrides, recorder_metadata=recorder_metadata
@@ -678,30 +690,39 @@ async def trial_run_existing(req: TrialRunExistingRequest) -> TrialRunResponse:
         
         # Use self-healing if enabled
         if req.selfHealing:
-            logger.info("[TrialRunExisting] ===== USING SELF-HEALING EXECUTOR =====")
+            logger.info("[/trial-run-existing] ===== USING SELF-HEALING EXECUTOR =====")
             # Load recorder metadata if session name provided
             recorder_metadata = None
             if req.sessionName:
                 try:
                     import json
-                    flows_dir = Path("app") / "generated_flows"
+                    flows_dir = _P(__file__).resolve().parents[2] / "generated_flows"
+                    logger.info(f"[/trial-run-existing] Metadata search path: {flows_dir}")
+                    logger.info(f"[/trial-run-existing] Directory exists: {flows_dir.exists()}")
                     possible_files = [
                         flows_dir / f"{req.sessionName}.refined.json",
                         flows_dir / f"{req.sessionName}-{req.sessionName}.refined.json",
                         flows_dir / f"{req.sessionName}.json",
                     ]
+                    logger.info(f"[/trial-run-existing] Checking files: {[f.name for f in possible_files]}")
                     for metadata_file in possible_files:
+                        logger.info(f"[/trial-run-existing] Checking: {metadata_file.name} (exists={metadata_file.exists()})")
                         if metadata_file.exists():
                             with open(metadata_file, 'r', encoding='utf-8') as f:
                                 recorder_metadata = json.load(f)
                                 if 'steps' in recorder_metadata and 'actions' not in recorder_metadata:
                                     recorder_metadata['actions'] = recorder_metadata['steps']
-                                logger.info(f"[Self-Healing] Loaded recorder metadata from: {metadata_file.name}")
+                                logger.info(f"[/trial-run-existing] ✓ Loaded metadata from: {metadata_file.name} with {len(recorder_metadata.get('actions', []))} actions")
                                 break
                     if not recorder_metadata:
-                        logger.warning(f"[Self-Healing] Could not find metadata for session: {req.sessionName}")
+                        logger.warning(f"[/trial-run-existing] ✗ No metadata found for session: {req.sessionName}")
+                        logger.warning(f"[/trial-run-existing] Searched in: {flows_dir}")
+                        if flows_dir.exists():
+                            logger.warning(f"[/trial-run-existing] Available files: {list(flows_dir.glob('*.json'))}")
                 except Exception as e:
-                    logger.warning(f"[Self-Healing] Failed to load recorder metadata: {e}")
+                    logger.warning(f"[/trial-run-existing] Exception loading metadata: {e}")
+                    import traceback
+                    logger.warning(traceback.format_exc())
             
             try:
                 from ...self_healing_trial_executor import execute_trial_with_self_healing
@@ -1090,6 +1111,10 @@ async def trial_run_stream(req: TrialRunRequest) -> StreamingResponse:
 
     async def gen() -> AsyncGenerator[bytes, None]:
         try:
+            # Normalize sessionName: treat string 'None' as None
+            actual_session_name = None if (req.sessionName == 'None' or req.sessionName == 'null' or not req.sessionName) else req.sessionName
+            logger.info(f"[/trial-run/stream] === STREAM STARTED ===")
+            logger.info(f"[/trial-run/stream] selfHealing={req.selfHealing}, sessionName='{actual_session_name}'")
             print(f"[DEBUG] TrialRunStream: selfHealing={req.selfHealing}")
             logger.info(f"[TrialRunStream] selfHealing={req.selfHealing}")
             # If self-healing is enabled, use non-streaming self-healing executor instead
@@ -1117,36 +1142,72 @@ async def trial_run_stream(req: TrialRunRequest) -> StreamingResponse:
                 
                 # Load recorder metadata if session name provided
                 recorder_metadata = None
-                if req.sessionName:
+                
+                # If no session name provided, try to extract from test content
+                if not actual_session_name:
+                    import re
+                    patterns = [
+                        r"describe\(['\"]([^'\"]*(?:test|tc)\d+[^'\"]*)['\"]",
+                        r"(test\d+)",
+                        r"(tc\d+)",
+                    ]
+                    for pattern in patterns:
+                        match = re.search(pattern, content, re.IGNORECASE)
+                        if match:
+                            captured = match.group(1) if match.lastindex else match.group(0)
+                            id_match = re.search(r"(?:test|tc)\d+", captured, re.IGNORECASE)
+                            if id_match:
+                                actual_session_name = id_match.group(0).lower()
+                                print(f"[DEBUG /trial-run/stream] Extracted session name from content: {actual_session_name}")
+                                logger.info(f"[/trial-run/stream] Extracted session name from content: {actual_session_name}")
+                                break
+                
+                print(f"[DEBUG /trial-run/stream] Final sessionName: '{actual_session_name}'")
+                logger.info(f"[/trial-run/stream] Final sessionName: '{actual_session_name}'")
+                if actual_session_name:
+                    print(f"[DEBUG /trial-run/stream] Loading metadata for session: {actual_session_name}")
                     try:
                         import json
                         from pathlib import Path as _PathLib
-                        # Look for refined JSON in app/generated_flows
-                        flows_dir = _PathLib("app") / "generated_flows"
+                        # Use absolute path from project root
+                        flows_dir = _PathLib(__file__).resolve().parents[3] / "app" / "generated_flows"
+                        logger.info(f"[/trial-run/stream] Metadata search path: {flows_dir}")
+                        logger.info(f"[/trial-run/stream] Directory exists: {flows_dir.exists()}")
                         # Try common naming patterns
                         possible_files = [
-                            flows_dir / f"{req.sessionName}.refined.json",
-                            flows_dir / f"{req.sessionName}-{req.sessionName}.refined.json",
-                            flows_dir / f"{req.sessionName}.json",
+                            flows_dir / f"{actual_session_name}.refined.json",
+                            flows_dir / f"{actual_session_name}-{actual_session_name}.refined.json",
+                            flows_dir / f"{actual_session_name}.json",
                         ]
+                        logger.info(f"[/trial-run/stream] Checking files: {[f.name for f in possible_files]}")
                         
                         for metadata_file in possible_files:
+                            print(f"[DEBUG /trial-run/stream] Checking: {metadata_file} (exists={metadata_file.exists()})")
+                            logger.info(f"[/trial-run/stream] Checking: {metadata_file.name} (exists={metadata_file.exists()})")
                             if metadata_file.exists():
                                 with open(metadata_file, 'r', encoding='utf-8') as f:
                                     recorder_metadata = json.load(f)
                                     # Normalize: if it has 'steps', copy to 'actions' for compatibility
                                     if 'steps' in recorder_metadata and 'actions' not in recorder_metadata:
                                         recorder_metadata['actions'] = recorder_metadata['steps']
-                                    logger.info(f"[Self-Healing Stream] Loaded recorder metadata from: {metadata_file.name}")
-                                    yield _format_sse({"phase": "info", "message": f"Loaded recorder metadata from: {metadata_file.name}"})
+                                    logger.info(f"[/trial-run/stream] ✓ Loaded metadata from: {metadata_file.name} with {len(recorder_metadata.get('actions', []))} actions")
+                                    yield _format_sse({"phase": "info", "message": f"Loaded recorder metadata: {metadata_file.name} ({len(recorder_metadata.get('actions', []))} actions)"})
                                     break
                         
                         if not recorder_metadata:
-                            logger.warning(f"[Self-Healing Stream] Could not find metadata for session: {req.sessionName}")
+                            logger.warning(f"[/trial-run/stream] ✗ No metadata found for session: {actual_session_name}")
+                            if flows_dir.exists():
+                                logger.warning(f"[/trial-run/stream] Available files: {list(flows_dir.glob('*.json'))}")
                     except Exception as e:
-                        logger.warning(f"[Self-Healing Stream] Failed to load recorder metadata: {e}")
+                        logger.warning(f"[/trial-run/stream] Exception loading metadata: {e}")
+                        import traceback
+                        logger.warning(traceback.format_exc())
                 
                 # Run with self-healing
+                print(f"[DEBUG /trial-run/stream] About to call execute_trial_with_self_healing")
+                print(f"[DEBUG /trial-run/stream] recorder_metadata is None: {recorder_metadata is None}")
+                if recorder_metadata:
+                    print(f"[DEBUG /trial-run/stream] recorder_metadata has {len(recorder_metadata.get('actions', []))} actions")
                 result = await asyncio.get_event_loop().run_in_executor(
                     None,
                     execute_trial_with_self_healing,
