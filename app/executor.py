@@ -14,18 +14,22 @@ def _resolve_playwright_command(tmp_path: str, headed: bool, project_root: Optio
     Parameters:
         tmp_path: Path to spec file (absolute or relative to project_root).
         headed: Whether to append --headed.
-        project_root: Root where Playwright config & node_modules live. Defaults to monorepo root.
+        project_root: Root where the test will run from. Defaults to monorepo root.
     """
     # Add Node.js to PATH first so shutil.which can find it
     nodejs_path = r"C:\Program Files\nodejs"
     if nodejs_path not in os.environ.get("PATH", ""):
         os.environ["PATH"] = nodejs_path + os.pathsep + os.environ.get("PATH", "")
     
-    project_root = project_root or Path(__file__).resolve().parents[2]
+    # Always use monorepo root for finding Playwright and node_modules
+    monorepo_root = Path(__file__).resolve().parents[1]  # mcp_integration directory
+    project_root = project_root or monorepo_root
     cwd = str(project_root)
     
     print(f"[Executor] Resolving Playwright command")
-    print(f"[Executor] Project root: {project_root}")
+    print(f"[Executor] Monorepo root (for Playwright/node_modules): {monorepo_root}")
+    print(f"[Executor] Project root (cwd): {project_root}")
+    print(f"[Executor] Monorepo root exists: {monorepo_root.exists()}")
     print(f"[Executor] Project root exists: {project_root.exists()}")
 
     # Playwright treats positional args as regex. On Windows, backslashes can break the match.
@@ -36,9 +40,9 @@ def _resolve_playwright_command(tmp_path: str, headed: bool, project_root: Optio
     if headed:
         base_args.append("--headed")
 
-    # Prefer local node_modules binaries first to avoid version conflicts
-    bin_dir_win = project_root / "node_modules" / ".bin" / "playwright.cmd"
-    bin_dir_unix = project_root / "node_modules" / ".bin" / "playwright"
+    # Look for Playwright binaries in monorepo root's node_modules (not project_root)
+    bin_dir_win = monorepo_root / "node_modules" / ".bin" / "playwright.cmd"
+    bin_dir_unix = monorepo_root / "node_modules" / ".bin" / "playwright"
     
     print(f"[Executor] Checking for playwright.cmd: {bin_dir_win}")
     print(f"[Executor] playwright.cmd exists: {bin_dir_win.exists()}")
@@ -52,8 +56,8 @@ def _resolve_playwright_command(tmp_path: str, headed: bool, project_root: Optio
         print(f"[Executor] ✓ Using: {bin_dir_unix}")
         return [str(bin_dir_unix), *base_args], cwd
 
-    # Fallback to running the CLI JS directly
-    cli_js = project_root / "node_modules" / "@playwright" / "test" / "cli.js"
+    # Fallback to running the CLI JS directly from monorepo root
+    cli_js = monorepo_root / "node_modules" / "@playwright" / "test" / "cli.js"
     node_path = shutil.which("node") or shutil.which("node.exe")
     
     print(f"[Executor] Checking CLI JS fallback: {cli_js}")
@@ -64,8 +68,8 @@ def _resolve_playwright_command(tmp_path: str, headed: bool, project_root: Optio
         print(f"[Executor] ✓ Using node + CLI JS: {node_path} {cli_js}")
         return [node_path, str(cli_js), *base_args], cwd
     
-    # Check if node_modules exists at all
-    node_modules = project_root / "node_modules"
+    # Check if node_modules exists in monorepo root
+    node_modules = monorepo_root / "node_modules"
     print(f"[Executor] node_modules exists: {node_modules.exists()}")
     if node_modules.exists():
         playwright_pkg = node_modules / "@playwright" / "test"
@@ -73,14 +77,15 @@ def _resolve_playwright_command(tmp_path: str, headed: bool, project_root: Optio
 
     # Nothing found; craft helpful error
     error_msg = (
-        f"Playwright CLI not found in {project_root}.\n"
+        f"Playwright CLI not found in monorepo root {monorepo_root}.\n"
         f"Checked locations:\n"
         f"  - {bin_dir_win}\n"
         f"  - {bin_dir_unix}\n"
         f"  - {cli_js}\n"
         f"Ensure Node and @playwright/test are installed:\n"
-        f"  cd {project_root}\n"
+        f"  cd {monorepo_root}\n"
         f"  npm ci\n"
+        f"NOTE: Test will run from {project_root} but Playwright is expected in {monorepo_root}\n"
     )
     print(f"[Executor] ERROR: {error_msg}")
     raise FileNotFoundError(error_msg)
