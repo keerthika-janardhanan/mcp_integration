@@ -422,57 +422,49 @@ class AgenticScriptAgent:
                 "SCENARIO: {scenario}\n"
                 "FLOW: {flow_name}\n"
                 "URL: {start_url}\n\n"
-                "STEPS (with [Page Title]):\n"
-                "{recorded_steps}\n\n"
-                "REFERENCE:\n"
-                "{reference_files}\n\n"
-                "OUTPUT FORMAT (REQUIRED):\n"
+                "STEPS:\n{recorded_steps}\n\n"
+                "REFERENCE:\n{reference_files}\n\n"
+                "OUTPUT FORMAT:\n"
                 "{{\n"
-                "  \"locators/PageTitle1.ts\": \"export default {{ element1: 'input[name=\\\"user\\\"][type=\\\"text\\\"]', ... }}\",\n"
-                "  \"pages/PageTitle1.pages.ts\": \"import {{ Page, Locator }} from '@playwright/test';\\nimport HelperClass from '../util/methods.utility.ts';\\nimport locators from '../locators/PageTitle1.ts';\\n\\nclass PageTitle1Page {{\\n  page: Page;\\n  helper: HelperClass;\\n  element1: Locator;\\n  constructor(page: Page) {{\\n    this.page = page;\\n    this.helper = new HelperClass(page);\\n    this.element1 = page.locator(locators.element1);\\n  }}\\n  // methods...\\n}}\\nexport default PageTitle1Page;\",\n"
-                "  \"tests/{flow_name}.spec.ts\": \"import {{ test }} from './testSetup.ts';\\nimport PageTitle1Page from '../pages/PageTitle1.pages.ts';\\n...\"\n"
+                "  \"locators/Page.ts\": \"export default {{ field: 'selector' }}\",\n"
+                "  \"pages/Page.pages.ts\": \"class PagePage {{ ... }} export default PagePage;\",\n"
+                "  \"tests/{flow_name}.spec.ts\": \"test.describe(...)\"\n"
                 "}}\n\n"
-                "RULES:\n"
-                "1. PAGE SEPARATION: Extract unique page titles from [Page Title] in steps.\n"
-                "   Example: \"[Workday Sign In]\" → files: locators/WorkdaySignIn.ts, pages/WorkdaySignIn.pages.ts\n"
-                "   Create one locator + page file per unique page title.\n\n"
-                "2. LOCATORS (2+ ATTRIBUTES MANDATORY):\n"
-                "   Combine: role+attribute, text+css, name+type, id+class\n"
-                "   Good: \"input[name='email'][type='text']\" or page.getByRole('button',{{name:'Submit'}}).and(page.locator('[data-test=\"btn\"]'))\n"
-                "   Bad: \"#email\" (single attribute)\n\n"
-                "3. PAGE CLASS:\n"
-                "   - import {{ Page, Locator }} from '@playwright/test';\n"
-                "   - import HelperClass from \"../util/methods.utility.ts\";\n"
-                "   - import locators from \"../locators/PageTitle.ts\";\n"
-                "   - Declare class (NOT export): class PageTitlePage {{ ... }}\n"
-                "   - Properties: page, helper, element Locators\n"
-                "   - Constructor: this.helper = new HelperClass(page); this.element = page.locator(locators.element);\n"
-                "   - Methods: coerceValue(v), normaliseDataKey(k), resolveDataValue(row, keys), applyData(row, keys, idx)\n"
-                "   - applyData MUST read all values from formData parameter (populated from Excel files in ../data/ folder)\n"
-                "   - NEVER use process.env for any credentials or test data - all values MUST come from Excel data files\n"
-                "   - Explicit waits: await element.waitFor({{state:'visible',timeout:30000}}); await page.waitForTimeout(500);\n"
-                "   - END FILE: export default PageTitlePage; (MUST be last line)\n\n"
+                "CRITICAL RULES:\n"
+                "1. LOCATOR PRIORITY (use first available from recorder metadata):\n"
+                "   a) Playwright properties: getByRole, getByTestId, getByLabel, getByText, getByPlaceholder\n"
+                "      CONVERT to CSS equivalents for page.locator():\n"
+                "      - getByTestId('id') → [data-testid='id']\n"
+                "      - getByRole('button', { name: 'Text' }) → button[aria-label='Text']\n"
+                "      - getByLabel('Label') → [aria-label='Label']\n"
+                "      - getByPlaceholder('Text') → [placeholder='Text']\n"
+                "   b) CSS selector: input[name='user'], button[type='submit']\n"
+                "   c) XPath: //*[@id='username'] (LAST RESORT)\n"
+                "   d) Combine attributes if needed: input[name='user'][type='text']\n"
+                "   NEVER guess locators - use ONLY recorder metadata\n\n"
+                "2. PAGE SEPARATION: Create separate locator/page files per [Page Title]\n"
+                "   Example: [Login Page] → locators/LoginPage.ts + pages/LoginPage.pages.ts\n\n"
+                "3. PAGE CLASS STRUCTURE:\n"
+                "   - Import: Page, Locator, HelperClass, locators\n"
+                "   - Properties: page, helper, locators as Locator\n"
+                "   - Constructor: initialize helper and locators\n"
+                "   - Methods: coerceValue, normaliseDataKey, resolveDataValue, applyData\n"
+                "   - applyData reads from formData (Excel data from ../data/)\n"
+                "   - NEVER use process.env - ALL data from Excel\n"
+                "   - Export: export default PageClass;\n\n"
                 "4. TEST FILE:\n"
-                "   - import {{ test }} from \"./testSetup.ts\";\n"
-                "   - Import ONLY page classes from recorded steps (check [Page Title])\n"
-                "   - import {{ getTestToRun, shouldRun, readExcelData }} from \"../util/csvFileManipulation.ts\";\n"
-                "   - import {{ attachScreenshot, namedStep }} from \"../util/screenshot.ts\";\n"
-                "   - test.beforeAll(() => {{ executionList = getTestToRun(path.join(__dirname, '../testmanager.xlsx')); }});\n"
-                "   - Declare page instances: let workdaySignInPage: WorkdaySignInPage;\n"
-                "   - Initialize: workdaySignInPage = new WorkdaySignInPage(page);\n"
-                "   - Wrap steps: await namedStep(\"Step 1 - Action\", page, testinfo, async () => {{ ... }});\n"
-                "   - Screenshot: const screenshot = await page.screenshot(); attachScreenshot(\"Step 1\", testinfo, screenshot);\n\n"
-                "5. DATA: ALL test data MUST come from Excel files in ../data/ folder (NEVER use process.env for credentials).\n"
-                "   - Construct full path: const dataFilePath = path.join(__dirname, '../data', dataSheetName);\n"
-                "   - Use readExcelData helper: const dataRow = readExcelData(dataFilePath, dataSheetTab, dataReferenceId, dataIdColumn);\n"
-                "   - readExcelData(filePath, sheetName, testcaseId, columnName) - sheetName first, then ID value, then column name LAST\n"
-                "   - Get IDName from testmanager: const dataIdColumn = String(testRow?.['IDName'] ?? '').trim();\n"
-                "   - SheetTab is not in testmanager, default to 'Sheet1': const dataSheetTab = String(testRow?.['SheetTab'] ?? '').trim() || 'Sheet1';\n"
-                "   - Pass dataRow to page.applyData: await pageObject.applyData(dataRow, ['Username', 'Password'], index);\n"
-                "   - For login: await loginPage.applyData(dataRow, ['Username'], 0); then await loginPage.applyData(dataRow, ['Password'], 0);\n"
-                "   - VALIDATE: if (!dataRow || Object.keys(dataRow).length === 0) throw new Error('No test data found');\n"
-                "   - CRITICAL: Never call methods like login(process.env.USERID, process.env.PASSWORD) - use applyData with Excel data\n\n"
-                "Generate complete, valid JSON. No markdown. No placeholders.\n"
+                "   - Import: test, page classes, getTestToRun, readExcelData, namedStep, attachScreenshot\n"
+                "   - beforeAll: load testmanager.xlsx\n"
+                "   - Initialize page objects\n"
+                "   - Wrap steps in namedStep with screenshots\n"
+                "   - Load Excel data: readExcelData(path, sheetName, referenceId, columnName)\n"
+                "   - Call applyData with dataRow and column names\n\n"
+                "5. DATA HANDLING:\n"
+                "   - Path: path.join(__dirname, '../data', dataSheetName)\n"
+                "   - Read: readExcelData(path, sheetTab, referenceId, idColumn)\n"
+                "   - Apply: await page.applyData(dataRow, ['Column1', 'Column2'], index)\n"
+                "   - Validate: throw if dataRow empty\n\n"
+                "Generate complete JSON. No markdown fences. No placeholders.\n"
             ),
         )
     def _ensure_llm(self):
@@ -1413,11 +1405,35 @@ class AgenticScriptAgent:
                         reference_locator = ref_locator_path.read_text(encoding='utf-8')
                         logger.info(f"[LLM Enhancement] Loaded reference locator: {len(reference_locator)} chars")
                 
-                # Format steps for prompt - include pageTitle for page-based generation
-                steps_text = "\n".join([
-                    f"Step {i+1}: [{step.get('pageTitle', 'Unknown Page')}] {step.get('action', '')} | {step.get('navigation', '')} | Data: {step.get('data', '')}"
-                    for i, step in enumerate(vector_steps)
-                ])
+                # Format steps with FULL recorder metadata including ALL locator types
+                steps_with_locators = []
+                for i, step in enumerate(vector_steps):
+                    element = step.get('element', {})
+                    selector_obj = element.get('selector', {})
+                    playwright_sel = selector_obj.get('playwright', {})
+                    css_sel = selector_obj.get('css', '')
+                    xpath_sel = selector_obj.get('xpath', '')
+                    html = element.get('html', '')
+                    
+                    step_text = f"Step {i+1}: [{step.get('pageTitle', 'Unknown Page')}] {step.get('action', '')} | {step.get('navigation', '')} | Data: {step.get('data', '')}"
+                    
+                    # Add ALL available locators from recorder metadata
+                    locator_info = []
+                    if playwright_sel:
+                        locator_info.append(f"  Playwright: {json.dumps(playwright_sel)}")
+                    if css_sel:
+                        locator_info.append(f"  CSS: {css_sel}")
+                    if xpath_sel:
+                        locator_info.append(f"  XPath: {xpath_sel}")
+                    if html:
+                        locator_info.append(f"  HTML: {html[:200]}...")  # Truncate long HTML
+                    
+                    if locator_info:
+                        step_text += "\n" + "\n".join(locator_info)
+                    
+                    steps_with_locators.append(step_text)
+                
+                steps_text = "\n".join(steps_with_locators)
                 
                 # Detect unique pages for page-based generation instruction
                 page_titles = set(step.get('pageTitle', 'Unknown') for step in vector_steps)
@@ -1941,76 +1957,53 @@ class AgenticScriptAgent:
             visible_text = step.get('visibleText', '').strip()
             playwright_sel = selector_obj.get('playwright', {})
             
-            # NEW PRIORITY: Visible text + Playwright > Visible text + CSS > Playwright + CSS/XPath > HTML + CSS > XPath + HTML
-            selector = ''
-            selector_source = ''
+            # Initialize selector variable
+            selector = None
+            selector_source = None
             
-            # PRIORITY 1: Visible text + Playwright properties (BEST)
-            if visible_text and playwright_sel and isinstance(playwright_sel, dict):
-                pw_methods = []
-                for pw_key, pw_value in playwright_sel.items():
+            # PRIORITY 1: Playwright locators (BEST - most resilient)
+            if playwright_sel and isinstance(playwright_sel, dict):
+                # Prioritize: byTestId > byRole > byLabel > byText
+                priority_order = ['byTestId', 'byRole', 'byLabel', 'byText']
+                for pw_key in priority_order:
+                    pw_value = playwright_sel.get(pw_key)
                     if pw_value:
-                        pw_methods.append(pw_value)
-                if pw_methods:
-                    # Combine visible text with Playwright selector
-                    selector = f"{pw_methods[0]}"
-                    selector_source = f"visible_text+playwright ({visible_text})"
-                    logger.info(f"Step {index + 1}: Using visible text + Playwright: {selector}")
+                        selector = pw_value
+                        selector_source = f"playwright.{pw_key}"
+                        logger.info(f"Step {index + 1}: Using Playwright {pw_key}: {selector}")
+                        break
             
-            # PRIORITY 2: Visible text + CSS (if Playwright not available)
-            if not selector and visible_text:
+            # PRIORITY 2: CSS with data attributes
+            if not selector:
+                css_selector = selector_obj.get('css', '')
+                if css_selector and ('data-testid' in css_selector or 'data-automation-id' in css_selector):
+                    selector = css_selector
+                    selector_source = "css (data-attribute)"
+                    logger.info(f"Step {index + 1}: Using CSS with data attribute: {selector}")
+            
+            # PRIORITY 3: Visible text + Playwright (for buttons/links)
+            if not selector and visible_text and playwright_sel:
+                pw_value = next((playwright_sel.get(k) for k in ['byRole', 'byText', 'byLabel'] if playwright_sel.get(k)), None)
+                if pw_value:
+                    selector = pw_value
+                    selector_source = f"playwright+text ({visible_text})"
+                    logger.info(f"Step {index + 1}: Using Playwright with text: {selector}")
+            
+            # PRIORITY 4: CSS selector
+            if not selector:
                 css_selector = selector_obj.get('css', '')
                 if css_selector:
-                    # Build composite selector with text validation
-                    if css_selector.startswith('//'):
-                        selector = f"xpath={css_selector}[contains(text(), '{visible_text}')]"
-                    else:
-                        selector = f"{css_selector}:has-text('{visible_text}')"
-                    selector_source = f"visible_text+css ({visible_text})"
-                    logger.info(f"Step {index + 1}: Using visible text + CSS: {selector}")
+                    selector = css_selector
+                    selector_source = "css"
+                    logger.info(f"Step {index + 1}: Using CSS: {selector}")
             
-            # PRIORITY 3: Playwright properties + CSS/XPath (no visible text)
-            if not selector and playwright_sel and isinstance(playwright_sel, dict):
-                css_selector = selector_obj.get('css', '')
+            # PRIORITY 5: XPath (last resort)
+            if not selector:
                 xpath_selector = selector_obj.get('xpath', '')
-                
-                # Try Playwright + CSS first
-                if css_selector:
-                    pw_value = next((v for v in playwright_sel.values() if v), None)
-                    if pw_value:
-                        # Combine both for resilience
-                        selector = f"{pw_value} >> {css_selector}"
-                        selector_source = "playwright+css"
-                        logger.info(f"Step {index + 1}: Using Playwright + CSS: {selector}")
-                # Try Playwright + XPath if CSS not available
-                elif xpath_selector:
-                    pw_value = next((v for v in playwright_sel.values() if v), None)
-                    if pw_value:
-                        selector = f"{pw_value} >> xpath={xpath_selector}"
-                        selector_source = "playwright+xpath"
-                        logger.info(f"Step {index + 1}: Using Playwright + XPath: {selector}")
-            
-            # PRIORITY 4: HTML + CSS properties (both not available)
-            if not selector:
-                css_selector = selector_obj.get('css', '')
-                element_html = element.get('html', '')
-                if css_selector and element_html:
-                    # Extract key attributes from HTML to enhance CSS
-                    selector = self._generate_html_css_combo(css_selector, element_html, step)
-                    selector_source = "html+css"
-                    logger.info(f"Step {index + 1}: Using HTML + CSS combo: {selector}")
-            
-            # PRIORITY 5: XPath + HTML properties (last resort)
-            if not selector:
-                element_html = element.get('html', '')
-                if element_html:
-                    try:
-                        selector = self._generate_enhanced_xpath(element, step)
-                        selector = f"xpath={selector}" if not selector.startswith('xpath=') else selector
-                        selector_source = "xpath+html (generated)"
-                        logger.info(f"Step {index + 1}: Using enhanced XPath: {selector}")
-                    except Exception as e:
-                        logger.warning(f"Failed to generate enhanced XPath: {e}")
+                if xpath_selector:
+                    selector = f"xpath={xpath_selector}" if not xpath_selector.startswith('xpath=') else xpath_selector
+                    selector_source = "xpath"
+                    logger.info(f"Step {index + 1}: Using XPath: {selector}")
             
             if not selector:
                 logger.warning(f"No selector found for step {index + 1}, skipping")
@@ -2767,22 +2760,21 @@ class AgenticScriptAgent:
             'dotenv.config();',
             'let executionList: any[];',
             '',
-            'test.beforeAll(() => {',
-            '  try {',
-            "    const testManagerPath = path.join(__dirname, '../testmanager.xlsx');",
-            '    if (fs.existsSync(testManagerPath)) {',
-            "      executionList = getTestToRun(testManagerPath);",
-            '    } else {',
-            "      console.log('[TEST MANAGER] testmanager.xlsx not found - all tests will run');",
+            f'test.describe({scenario_literal}, () => {{',
+            '  test.beforeAll(() => {',
+            '    try {',
+            "      const testManagerPath = path.join(__dirname, '../testmanager.xlsx');",
+            '      if (fs.existsSync(testManagerPath)) {',
+            "        executionList = getTestToRun(testManagerPath);",
+            '      } else {',
+            "        console.log('[TEST MANAGER] testmanager.xlsx not found - all tests will run');",
+            '        executionList = [];',
+            '      }',
+            '    } catch (error) {',
+            "      console.warn('[TEST MANAGER] Failed to load testmanager.xlsx - all tests will run. Error:', error.message);",
             '      executionList = [];',
             '    }',
-            '  } catch (error) {',
-            "    console.warn('[TEST MANAGER] Failed to load testmanager.xlsx - all tests will run. Error:', error.message);",
-            '    executionList = [];',
-            '  }',
-            '});',
-            '',
-            f'test.describe({scenario_literal}, () => {{',
+            '  });',
             f'  let {page_var}: PageObject;',
         ])
 

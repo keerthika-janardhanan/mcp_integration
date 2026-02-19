@@ -149,7 +149,8 @@ def run_trial_with_self_healing(
     framework_root: Path,
     max_retries: int = 2,
     headed: bool = True,
-    env_overrides: Optional[Dict[str, str]] = None
+    env_overrides: Optional[Dict[str, str]] = None,
+    auto_update_files: bool = True
 ) -> Tuple[bool, str, List[Dict[str, str]]]:
     """Run trial with automatic self-healing on locator failures.
     
@@ -159,6 +160,7 @@ def run_trial_with_self_healing(
         max_retries: Maximum self-healing retry attempts
         headed: Run in headed mode
         env_overrides: Environment variable overrides
+        auto_update_files: Automatically update framework files with healed locators
         
     Returns:
         Tuple of (success, logs, healing_attempts)
@@ -234,6 +236,18 @@ def run_trial_with_self_healing(
             if not healed_script or healed_script == current_script:
                 logger.warning("[SelfHealing] Self-healing returned no changes")
                 return success, logs, healing_attempts
+            
+            # Auto-update framework files if enabled
+            if auto_update_files:
+                from .self_healing_file_locator import update_all_framework_files
+                count, files = update_all_framework_files(
+                    framework_root, 
+                    failed_locators, 
+                    healed_script,
+                    current_script  # Pass original for comparison
+                )
+                logger.info(f"[SelfHealing] 📝 Updated {count} files: {files}")
+                print(f"[SelfHealing] ✅ Updated {count} framework files")
             
             # Store healing attempt
             healing_attempts.append({

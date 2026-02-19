@@ -1147,20 +1147,18 @@ async def trial_run_stream(req: TrialRunRequest) -> StreamingResponse:
                 if not actual_session_name:
                     import re
                     patterns = [
-                        r"describe\(['\"]([^'\"]*(?:test|tc)\d+[^'\"]*)['\"]",
-                        r"(test\d+)",
-                        r"(tc\d+)",
+                        r"describe\(['\"]([^'\"]*(?:testc?|tc)\d+[^'\"]*)['\"]",  # describe('testc777') or describe('tc777')
+                        r"(testc\d+)",  # testc777
+                        r"(test\d+)",   # test0013
+                        r"(tc\d+)",     # tc777
                     ]
                     for pattern in patterns:
                         match = re.search(pattern, content, re.IGNORECASE)
                         if match:
-                            captured = match.group(1) if match.lastindex else match.group(0)
-                            id_match = re.search(r"(?:test|tc)\d+", captured, re.IGNORECASE)
-                            if id_match:
-                                actual_session_name = id_match.group(0).lower()
-                                print(f"[DEBUG /trial-run/stream] Extracted session name from content: {actual_session_name}")
-                                logger.info(f"[/trial-run/stream] Extracted session name from content: {actual_session_name}")
-                                break
+                            actual_session_name = match.group(1).lower()
+                            print(f"[DEBUG /trial-run/stream] Extracted session name from content: {actual_session_name}")
+                            logger.info(f"[/trial-run/stream] Extracted session name from content: {actual_session_name}")
+                            break
                 
                 print(f"[DEBUG /trial-run/stream] Final sessionName: '{actual_session_name}'")
                 logger.info(f"[/trial-run/stream] Final sessionName: '{actual_session_name}'")
@@ -1169,30 +1167,28 @@ async def trial_run_stream(req: TrialRunRequest) -> StreamingResponse:
                     try:
                         import json
                         from pathlib import Path as _PathLib
-                        # Use absolute path from project root
                         flows_dir = _PathLib(__file__).resolve().parents[3] / "app" / "generated_flows"
                         logger.info(f"[/trial-run/stream] Metadata search path: {flows_dir}")
-                        logger.info(f"[/trial-run/stream] Directory exists: {flows_dir.exists()}")
-                        # Try common naming patterns
-                        possible_files = [
-                            flows_dir / f"{actual_session_name}.refined.json",
-                            flows_dir / f"{actual_session_name}-{actual_session_name}.refined.json",
-                            flows_dir / f"{actual_session_name}.json",
-                        ]
-                        logger.info(f"[/trial-run/stream] Checking files: {[f.name for f in possible_files]}")
                         
-                        for metadata_file in possible_files:
-                            print(f"[DEBUG /trial-run/stream] Checking: {metadata_file} (exists={metadata_file.exists()})")
-                            logger.info(f"[/trial-run/stream] Checking: {metadata_file.name} (exists={metadata_file.exists()})")
-                            if metadata_file.exists():
-                                with open(metadata_file, 'r', encoding='utf-8') as f:
-                                    recorder_metadata = json.load(f)
-                                    # Normalize: if it has 'steps', copy to 'actions' for compatibility
-                                    if 'steps' in recorder_metadata and 'actions' not in recorder_metadata:
-                                        recorder_metadata['actions'] = recorder_metadata['steps']
-                                    logger.info(f"[/trial-run/stream] ✓ Loaded metadata from: {metadata_file.name} with {len(recorder_metadata.get('actions', []))} actions")
-                                    yield _format_sse({"phase": "info", "message": f"Loaded recorder metadata: {metadata_file.name} ({len(recorder_metadata.get('actions', []))} actions)"})
-                                    break
+                        # Search for exact match (case-insensitive)
+                        if flows_dir.exists():
+                            all_files = list(flows_dir.glob('*.json'))
+                            session_lower = actual_session_name.lower()
+                            
+                            for json_file in all_files:
+                                name_lower = json_file.stem.lower()
+                                # Exact match: sessionname-sessionname.refined or sessionname.refined or sessionname
+                                if (name_lower == f"{session_lower}-{session_lower}.refined" or
+                                    name_lower == f"{session_lower}.refined" or
+                                    name_lower == session_lower):
+                                    print(f"[DEBUG /trial-run/stream] Found matching file: {json_file.name}")
+                                    with open(json_file, 'r', encoding='utf-8') as f:
+                                        recorder_metadata = json.load(f)
+                                        if 'steps' in recorder_metadata and 'actions' not in recorder_metadata:
+                                            recorder_metadata['actions'] = recorder_metadata['steps']
+                                        logger.info(f"[/trial-run/stream] ✓ Loaded metadata from: {json_file.name} with {len(recorder_metadata.get('actions', []))} actions")
+                                        yield _format_sse({"phase": "info", "message": f"Loaded metadata: {json_file.name}"})
+                                        break
                         
                         if not recorder_metadata:
                             logger.warning(f"[/trial-run/stream] ✗ No metadata found for session: {actual_session_name}")
