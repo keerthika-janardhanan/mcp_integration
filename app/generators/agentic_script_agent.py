@@ -407,66 +407,7 @@ class AgenticScriptAgent:
         self.microsoft_docs_mcp = get_microsoft_docs_mcp()
         self.github_mcp = get_github_mcp()
         self.filesystem_mcp = get_filesystem_mcp()
-        # Single unified prompt for all LLM interactions
-        self.unified_prompt = PromptTemplate(
-            input_variables=[
-                "task_type",
-                "scenario",
-                "recorded_steps",
-                "reference_files",
-                "flow_name",
-                "start_url",
-            ],
-            template=(
-                "Generate Playwright TypeScript test files. Output ONLY valid JSON.\n\n"
-                "SCENARIO: {scenario}\n"
-                "FLOW: {flow_name}\n"
-                "URL: {start_url}\n\n"
-                "STEPS:\n{recorded_steps}\n\n"
-                "REFERENCE:\n{reference_files}\n\n"
-                "OUTPUT FORMAT:\n"
-                "{{\n"
-                "  \"locators/Page.ts\": \"export default {{ field: 'selector' }}\",\n"
-                "  \"pages/Page.pages.ts\": \"class PagePage {{ ... }} export default PagePage;\",\n"
-                "  \"tests/{flow_name}.spec.ts\": \"test.describe(...)\"\n"
-                "}}\n\n"
-                "CRITICAL RULES:\n"
-                "1. LOCATOR PRIORITY (use first available from recorder metadata):\n"
-                "   a) Playwright properties: getByRole, getByTestId, getByLabel, getByText, getByPlaceholder\n"
-                "      CONVERT to CSS equivalents for page.locator():\n"
-                "      - getByTestId('id') → [data-testid='id']\n"
-                "      - getByRole('button', { name: 'Text' }) → button[aria-label='Text']\n"
-                "      - getByLabel('Label') → [aria-label='Label']\n"
-                "      - getByPlaceholder('Text') → [placeholder='Text']\n"
-                "   b) CSS selector: input[name='user'], button[type='submit']\n"
-                "   c) XPath: //*[@id='username'] (LAST RESORT)\n"
-                "   d) Combine attributes if needed: input[name='user'][type='text']\n"
-                "   NEVER guess locators - use ONLY recorder metadata\n\n"
-                "2. PAGE SEPARATION: Create separate locator/page files per [Page Title]\n"
-                "   Example: [Login Page] → locators/LoginPage.ts + pages/LoginPage.pages.ts\n\n"
-                "3. PAGE CLASS STRUCTURE:\n"
-                "   - Import: Page, Locator, HelperClass, locators\n"
-                "   - Properties: page, helper, locators as Locator\n"
-                "   - Constructor: initialize helper and locators\n"
-                "   - Methods: coerceValue, normaliseDataKey, resolveDataValue, applyData\n"
-                "   - applyData reads from formData (Excel data from ../data/)\n"
-                "   - NEVER use process.env - ALL data from Excel\n"
-                "   - Export: export default PageClass;\n\n"
-                "4. TEST FILE:\n"
-                "   - Import: test, page classes, getTestToRun, readExcelData, namedStep, attachScreenshot\n"
-                "   - beforeAll: load testmanager.xlsx\n"
-                "   - Initialize page objects\n"
-                "   - Wrap steps in namedStep with screenshots\n"
-                "   - Load Excel data: readExcelData(path, sheetName, referenceId, columnName)\n"
-                "   - Call applyData with dataRow and column names\n\n"
-                "5. DATA HANDLING:\n"
-                "   - Path: path.join(__dirname, '../data', dataSheetName)\n"
-                "   - Read: readExcelData(path, sheetTab, referenceId, idColumn)\n"
-                "   - Apply: await page.applyData(dataRow, ['Column1', 'Column2'], index)\n"
-                "   - Validate: throw if dataRow empty\n\n"
-                "Generate complete JSON. No markdown fences. No placeholders.\n"
-            ),
-        )
+        # Prompt is loaded from generator/COMPLETE_SYSTEM_PROMPT.md file
     def _ensure_llm(self):
         """Instantiate the LLM only when needed (preview/refine).
         Defaults to Copilot endpoints. Falls back to Azure OpenAI only if Copilot is not available.
@@ -1369,7 +1310,7 @@ class AgenticScriptAgent:
                 llm = self._ensure_llm()
                 
                 # Load comprehensive template from file
-                template_path = Path(__file__).resolve().parent.parent.parent / "generator" / ".md"
+                template_path = Path(__file__).resolve().parent.parent.parent / "generator" / "COMPLETE_SYSTEM_PROMPT.md"
                 system_prompt = ""
                 if template_path.exists():
                     system_prompt = template_path.read_text(encoding='utf-8')
@@ -1382,31 +1323,12 @@ class AgenticScriptAgent:
                         system_prompt = fallback_path.read_text(encoding='utf-8')
                         logger.info(f"[LLM Enhancement] Loaded fallback prompt: {len(system_prompt)} chars")
                 
-                # Read reference files for context
-                reference_page = ""
-                reference_test = ""
-                reference_locator = ""
-                
-                if framework and framework.pages_dir:
-                    ref_page_path = framework.pages_dir / "CreateinvoicepayablesPage.ts"
-                    if ref_page_path.exists():
-                        reference_page = ref_page_path.read_text(encoding='utf-8')
-                        logger.info(f"[LLM Enhancement] Loaded reference page: {len(reference_page)} chars")
-                
-                if framework and framework.tests_dir:
-                    ref_test_path = framework.tests_dir / "create-invoice-payables.spec.ts"
-                    if ref_test_path.exists():
-                        reference_test = ref_test_path.read_text(encoding='utf-8')
-                        logger.info(f"[LLM Enhancement] Loaded reference test: {len(reference_test)} chars")
-                
-                if framework and framework.locators_dir:
-                    ref_locator_path = framework.locators_dir / "create-invoice-payables.ts"
-                    if ref_locator_path.exists():
-                        reference_locator = ref_locator_path.read_text(encoding='utf-8')
-                        logger.info(f"[LLM Enhancement] Loaded reference locator: {len(reference_locator)} chars")
+                # Don't load reference files - use only our unified prompt
+                # Reference files removed to ensure LLM follows our prompt exactly
                 
                 # Format steps with FULL recorder metadata including ALL locator types
                 steps_with_locators = []
+                import re  # Import at method level
                 for i, step in enumerate(vector_steps):
                     element = step.get('element', {})
                     selector_obj = element.get('selector', {})
@@ -1420,7 +1342,42 @@ class AgenticScriptAgent:
                     # Add ALL available locators from recorder metadata
                     locator_info = []
                     if playwright_sel:
-                        locator_info.append(f"  Playwright: {json.dumps(playwright_sel)}")
+                        # Convert Playwright methods to CSS equivalents
+                        pw_conversions = []
+                        for key, value in playwright_sel.items():
+                            # Skip if value is not a string (avoid JSON serialization errors)
+                            if not isinstance(value, str):
+                                continue
+                            
+                            # Log the actual value for debugging
+                            logger.debug(f"[Playwright Conversion] Processing {key}: {value}")
+                            
+                            if 'getByTestId' in value:
+                                match = re.search(r"getByTestId\(['\"]([^'\"]+)['\"]\)", value)
+                                if match:
+                                    pw_conversions.append(f"[data-testid='{match.group(1)}']")
+                            elif 'getByRole' in value:
+                                # Try multiple patterns for getByRole
+                                # Pattern 1: getByRole('button', { name: 'Text' })
+                                match = re.search(r"getByRole\(['\"]([^'\"]+)['\"],\s*\{\s*name\s*:\s*['\"]([^'\"]+)['\"]\s*\}", value)
+                                if not match:
+                                    # Pattern 2: getByRole("button", {name: "Text"})
+                                    match = re.search(r'getByRole\(["\']([^"\']+ )["\'],\s*\{\s*name\s*:\s*["\']([^"\']+ )["\']\s*\}', value)
+                                if match:
+                                    pw_conversions.append(f"{match.group(1)}[aria-label='{match.group(2)}']")
+                                else:
+                                    logger.warning(f"[Playwright Conversion] Failed to parse getByRole: {value}")
+                            elif 'getByLabel' in value:
+                                match = re.search(r"getByLabel\(['\"]([^'\"]+)['\"]\)", value)
+                                if match:
+                                    pw_conversions.append(f"[aria-label='{match.group(1)}']")
+                            elif 'getByPlaceholder' in value:
+                                match = re.search(r"getByPlaceholder\(['\"]([^'\"]+)['\"]\)", value)
+                                if match:
+                                    pw_conversions.append(f"[placeholder='{match.group(1)}']")
+                        
+                        if pw_conversions:
+                            locator_info.append(f"  Playwright (converted to CSS): {', '.join(pw_conversions)}")
                     if css_sel:
                         locator_info.append(f"  CSS: {css_sel}")
                     if xpath_sel:
@@ -1433,33 +1390,45 @@ class AgenticScriptAgent:
                     
                     steps_with_locators.append(step_text)
                 
-                steps_text = "\n".join(steps_with_locators)
+                steps_text = "\n".join(str(s) for s in steps_with_locators)
                 
                 # Detect unique pages for page-based generation instruction
                 page_titles = set(step.get('pageTitle', 'Unknown') for step in vector_steps)
                 page_titles.discard('Unknown')
+                
+                # Add explicit page separation instruction to steps
                 if len(page_titles) >= 2:
+                    page_list = ', '.join(f"'{title}'" for title in sorted(page_titles))
+                    steps_text = f"""IMPORTANT: This flow spans {len(page_titles)} DIFFERENT PAGES: {page_list}
+
+You MUST create SEPARATE locator and page files for EACH page:
+{chr(10).join(f"- locators/{title.replace(' ', '')}Page.ts + pages/{title.replace(' ', '')}Page.pages.ts" for title in sorted(page_titles))}
+
+STEPS BY PAGE:
+{steps_text}"""
                     logger.info(f"[LLM Generation] Multiple pages detected: {sorted(page_titles)}")
-                    logger.info(f"[LLM Generation] LLM will be instructed to create separate files per page")
+                    logger.info(f"[LLM Generation] Added explicit page separation instruction to prompt")
+                else:
+                    logger.info(f"[LLM Generation] Single page flow - no page separation needed")
                 
-                # Build reference files section
+                # Build reference files section - REMOVED to prioritize our prompt
                 reference_section = ""
-                if reference_page:
-                    reference_section += f"**Page File Example:**\n```typescript\n{reference_page[:2000]}\n```\n\n"
-                if reference_test:
-                    reference_section += f"**Test File Example:**\n```typescript\n{reference_test[:2000]}\n```\n\n"
-                if reference_locator:
-                    reference_section += f"**Locator File Example:**\n```typescript\n{reference_locator[:800]}\n```\n"
                 
-                # Use unified prompt
-                prompt = self.unified_prompt.format(
-                    task_type="Generate complete Playwright test files (locators, page, test)",
-                    scenario=scenario,
-                    recorded_steps=steps_text,
-                    reference_files=reference_section or "Use standard Playwright patterns",
-                    flow_name=flow_name,
-                    start_url=start_url or "(will be extracted from steps)",
-                )
+                # Use system prompt from file
+                prompt = system_prompt + "\n\n" + f"""SCENARIO: {scenario}
+FLOW: {flow_name}
+URL: {start_url}
+
+STEPS:
+{steps_text}
+
+Generate complete JSON with all files. Output format:
+{{
+  "locators/PageName.ts": "export default {{ field: 'selector' }}",
+  "pages/PageName.pages.ts": "class PageNamePage {{ ... }}",
+  "tests/{flow_name}.spec.ts": "test.describe(...)"
+}}
+"""
                 
                 logger.info(f"[LLM Enhancement] Sending prompt to LLM: {len(prompt)} chars")
                 logger.info(f"[LLM Enhancement] Flow name: {flow_name}, Start URL: {start_url}")
@@ -1489,7 +1458,10 @@ class AgenticScriptAgent:
                     raise ValueError(f"LLM returned invalid JSON: {e}")
                 
             except Exception as e:
-                logger.error(f"[LLM Enhancement] ✗ Failed: {e}, falling back to static templates")
+                logger.error(f"[LLM Enhancement] ✗ Failed: {e}")
+                import traceback
+                logger.error(f"[LLM Enhancement] Traceback: {traceback.format_exc()}")
+                logger.error("[LLM Enhancement] Falling back to static templates")
                 # Fallback to static templates
                 all_files = FrameworkTemplate.generate_all_files(
                     flow_name=flow_name,
